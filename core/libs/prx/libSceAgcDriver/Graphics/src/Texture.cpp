@@ -1459,9 +1459,16 @@ bool StorageTexture::Refresh() {
         // Unchanged bytes rescue an upload only when nothing else moved: with the keys changed
         // the same bytes read differently, and a changed unit holding pending results must take
         // the drop rule below (the image holds the results, `original` what the CPU wrote back).
+        const auto storeStamped = [&](std::uint32_t layer) {
+            if (!tracked) return true;
+            const auto first = layerBegin(layer) / 65536 - descriptor.baseAddress / 65536;
+            const auto last = (layerBegin(layer) + layerBytes(layer) - 1) / 65536 - descriptor.baseAddress / 65536;
+            if (last >= stampedBlocks.size()) return true;
+            return std::any_of(stampedBlocks.begin() + first, stampedBlocks.begin() + last + 1, [](auto value) { return value == GuestMemory::BlockWritten; });
+        };
         bool pendingChanged = false;
         for (std::uint32_t layer = 0; layer < trackedLayers; ++layer) {
-            if (changed[layer] && layerPending[layer]) pendingChanged = true;
+            if (changed[layer] && layerPending[layer] && storeStamped(layer)) pendingChanged = true;
         }
         if (!unchanged && !keysChanged && !pendingChanged && originalValid && equalsOriginal()) {
             unchanged = true;
