@@ -1,0 +1,42 @@
+target gfx1036
+== exec kept by the body | initial EXEC: all 64 lanes
+  lanes 0-31 (32): passes=1 lastPass=1 s38InPass=ffffffff execInPass=00000000:ffffffff | after: s38=ffffffff exec=ffffffff:ffffffff totalPasses=2
+  lanes 32-63 (32): passes=1 lastPass=2 s38InPass=ffffffff execInPass=ffffffff:00000000 | after: s38=ffffffff exec=ffffffff:ffffffff totalPasses=2
+== exec kept by the body | initial EXEC: low half only
+  lanes 0-31 (32): passes=1 lastPass=1 s38InPass=00000000 execInPass=00000000:ffffffff | after: s38=00000000 exec=00000000:ffffffff totalPasses=1
+  lanes 32-63 (32): passes=0 lastPass=0 s38InPass=00000000 execInPass=00000000:00000000 | after: s38=00000000 exec=00000000:ffffffff totalPasses=1
+== exec kept by the body | initial EXEC: high half only
+  lanes 0-31 (32): passes=0 lastPass=0 s38InPass=00000000 execInPass=00000000:00000000 | after: s38=00000000 exec=ffffffff:00000000 totalPasses=1
+  lanes 32-63 (32): passes=1 lastPass=1 s38InPass=00000000 execInPass=ffffffff:00000000 | after: s38=00000000 exec=ffffffff:00000000 totalPasses=1
+== exec kept by the body | initial EXEC: no lane
+  lanes 0-63 (64): passes=0 lastPass=0 s38InPass=00000000 execInPass=00000000:00000000 | after: s38=5a5a5a5a exec=00000000:00000000 totalPasses=0
+== exec kept by the body | initial EXEC: lanes 3, 40
+  lanes 0-63 (62): passes=0 lastPass=0 s38InPass=00000000 execInPass=00000000:00000000 | after: s38=00000008 exec=00000100:00000008 totalPasses=2
+  lanes 3 (1): passes=1 lastPass=1 s38InPass=00000100 execInPass=00000000:00000008 | after: s38=00000008 exec=00000100:00000008 totalPasses=2
+  lanes 40 (1): passes=1 lastPass=2 s38InPass=00000008 execInPass=00000100:00000000 | after: s38=00000008 exec=00000100:00000008 totalPasses=2
+== exec kept by the body | initial EXEC: lane 3
+  lanes 0-63 (63): passes=0 lastPass=0 s38InPass=00000000 execInPass=00000000:00000000 | after: s38=00000000 exec=00000000:00000008 totalPasses=1
+  lanes 3 (1): passes=1 lastPass=1 s38InPass=00000000 execInPass=00000000:00000008 | after: s38=00000000 exec=00000000:00000008 totalPasses=1
+== exec kept by the body | initial EXEC: lane 40
+  lanes 0-63 (63): passes=0 lastPass=0 s38InPass=00000000 execInPass=00000000:00000000 | after: s38=00000000 exec=00000100:00000000 totalPasses=1
+  lanes 40 (1): passes=1 lastPass=1 s38InPass=00000000 execInPass=00000100:00000000 | after: s38=00000000 exec=00000100:00000000 totalPasses=1
+== body ends with s_mov_b64 exec, -1 | initial EXEC: all 64 lanes
+  lanes 0-31 (32): passes=1 lastPass=1 s38InPass=ffffffff execInPass=00000000:ffffffff | after: s38=ffffffff exec=ffffffff:ffffffff totalPasses=1
+  lanes 32-63 (32): passes=0 lastPass=0 s38InPass=00000000 execInPass=00000000:00000000 | after: s38=ffffffff exec=ffffffff:ffffffff totalPasses=1
+== body ends with s_mov_b64 exec, -1 | initial EXEC: low half only
+  lanes 0-31 (32): passes=1 lastPass=1 s38InPass=00000000 execInPass=00000000:ffffffff | after: s38=00000000 exec=ffffffff:00000000 totalPasses=1
+  lanes 32-63 (32): passes=0 lastPass=0 s38InPass=00000000 execInPass=00000000:00000000 | after: s38=00000000 exec=ffffffff:00000000 totalPasses=1
+== body ends with s_mov_b64 exec, -1 | initial EXEC: high half only
+  lanes 0-31 (32): passes=0 lastPass=0 s38InPass=00000000 execInPass=00000000:00000000 | after: s38=00000000 exec=ffffffff:00000000 totalPasses=1
+  lanes 32-63 (32): passes=1 lastPass=1 s38InPass=00000000 execInPass=ffffffff:00000000 | after: s38=00000000 exec=ffffffff:00000000 totalPasses=1
+== body ends with s_mov_b64 exec, -1 | initial EXEC: no lane
+  lanes 0-63 (64): passes=0 lastPass=0 s38InPass=00000000 execInPass=00000000:00000000 | after: s38=5a5a5a5a exec=00000000:00000000 totalPasses=0
+== body ends with s_mov_b64 exec, -1 | initial EXEC: lanes 3, 40
+  lanes 0-63 (63): passes=0 lastPass=0 s38InPass=00000000 execInPass=00000000:00000000 | after: s38=00000100 exec=ffffffff:00000100 totalPasses=1
+  lanes 3 (1): passes=1 lastPass=1 s38InPass=00000100 execInPass=00000000:00000008 | after: s38=00000100 exec=ffffffff:00000100 totalPasses=1
+== body ends with s_mov_b64 exec, -1 | initial EXEC: lane 3
+  lanes 0-63 (63): passes=0 lastPass=0 s38InPass=00000000 execInPass=00000000:00000000 | after: s38=00000000 exec=ffffffff:00000000 totalPasses=1
+  lanes 3 (1): passes=1 lastPass=1 s38InPass=00000000 execInPass=00000000:00000008 | after: s38=00000000 exec=ffffffff:00000000 totalPasses=1
+== body ends with s_mov_b64 exec, -1 | initial EXEC: lane 40
+  lanes 0-63 (63): passes=0 lastPass=0 s38InPass=00000000 execInPass=00000000:00000000 | after: s38=00000000 exec=ffffffff:00000000 totalPasses=1
+  lanes 40 (1): passes=1 lastPass=1 s38InPass=00000000 execInPass=00000100:00000000 | after: s38=00000000 exec=ffffffff:00000000 totalPasses=1
