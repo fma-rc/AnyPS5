@@ -1,0 +1,10 @@
+== the repository test run against the PS4 module (vectors.txt)
+font writing line: ok
+== differential runs: repository implementation against the PS4 module
+20000 sequences, 411762 operations (14401 where the PS4 module returned 0x80460002 and ours threw), null handles (ours throws, PS4 returns 0x80460002) as expected: all match
+50000 sequences, 2024854 operations: all match (NaN sign/payload-only differences 0, stale-step differences after a null return 0, highest level written 126, drops of 3+ levels 178830)
+calls where the PS4 module returned 0x80460002 and ours threw: 87001; writes with attribute 0 (ours) against 0xFA (PS4): 25221
+100000 sequences, 4049638 operations: all match (NaN sign/payload-only differences 0, stale-step differences after a null return 0, highest level written 126, drops of 3+ levels 356753)
+calls where the PS4 module returned 0x80460002 and ours threw: 172902; writes with attribute 0 (ours) against 0xFA (PS4): 50490
+20000 sequences, 806277 operations: all match (NaN sign/payload-only differences 232, stale-step differences after a null return 0, highest level written 126, drops of 3+ levels 151039)
+calls where the PS4 module returned 0x80460002 and ours threw: 34677; writes with attribute 0 (ours) against 0xFA (PS4): 10118

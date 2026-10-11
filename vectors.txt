@@ -1,0 +1,305 @@
+test line 85
+  harness: form 0x10 is passed to the module as 0x12
+  Create(form 0x12, detail null, out null) -> 0x80460002 
+  harness: throws (module returned an error; the repository implementation throws where the PS4 module returns one)
+test line 86
+  Create(form 0x13, detail null, out non-null) -> 0x80460002 
+  harness: throws (module returned an error; the repository implementation throws where the PS4 module returns one)
+test line 87
+  Create(form 0x0, detail null, out non-null) -> 0x80460002 
+  harness: throws (module returned an error; the repository implementation throws where the PS4 module returns one)
+test line 89
+  harness: form 0x10 is passed to the module as 0x12
+  Create(form 0x12, detail non-null, out non-null) -> 0x80460002 
+  harness: throws (module returned an error; the repository implementation throws where the PS4 module returns one)
+test line 91
+  harness: form 0x10 is passed to the module as 0x12
+  harness: detail with id 0x0FD5 is passed to the module as null
+  Create(form 0x12, detail null, out non-null) -> 0x0 L1
+test line 93
+  Create(form 0x12, detail null, out non-null) -> 0x0 L2
+test line 95
+  Create(form 0x11, detail null, out non-null) -> 0x0 L3
+test line 98
+  GetOrderingSpace(L1) -> 0x0 out1 0 out2 0 out3 0 out4 0
+test line 99
+  RefersRenderStep(L1) -> null
+test line 100
+  GetRenderMetrics(L1, out non-null) -> 0x0 {advance 0 0, top 0, bottom 0, left 0, right 0}
+test line 111
+  WritesOrder(null, attribute 0xfa, metrics {advance 10 0, top -8, bottom 2, left 1, right 9}, orderer O1) -> 0x80460002
+  harness: throws (module returned an error; the repository implementation throws where the PS4 module returns one)
+test line 112
+  WritesOrder(L1, attribute 0x1, metrics {advance 10 0, top -8, bottom 2, left 1, right 9}, orderer O1) -> 0x80460002
+  harness: throws (module returned an error; the repository implementation throws where the PS4 module returns one)
+test line 113
+  WritesOrder(L1, attribute 0x1fb, metrics {advance 10 0, top -8, bottom 2, left 1, right 9}, orderer O1) -> 0x80460002
+  harness: throws (module returned an error; the repository implementation throws where the PS4 module returns one)
+test line 114
+  WritesOrder(L1, attribute 0xfa, metrics {advance 10 0, top -8, bottom 2, left 1, right 9}, orderer null) -> 0x80460002
+  harness: throws (module returned an error; the repository implementation throws where the PS4 module returns one)
+test line 115
+  WritesOrder(L1, attribute 0x7ffa, metrics {advance 10 0, top -8, bottom 2, left 1, right 9}, orderer O1) -> 0x80460002
+  harness: throws (module returned an error; the repository implementation throws where the PS4 module returns one)
+test line 116
+  RefersRenderStep(L1) -> null
+test line 118
+  harness: attribute 0 is passed to the module as 0xfa
+  WritesOrder(L1, attribute 0xfa, metrics {advance 10 0, top -8, bottom 2, left 1, right 9}, orderer O1) -> 0x0
+test line 119
+  WritesOrder(L1, attribute 0xfa, metrics {advance 6 0, top -12, bottom 3, left -1, right 5}, orderer O2) -> 0x0
+test line 120
+  GetOrderingSpace(L1) -> 0x0 out1 16 out2 1 out3 0 out4 1
+test line 121
+  GetRenderMetrics(L1, out non-null) -> 0x0 {advance 0 0, top 0, bottom 0, left 0, right 0}
+test line 122
+  RefersRenderStep(L1) -> x 0, y 0, advanceX 0, advanceY 0, spacingProgress 0, orderer O1, Adjusting 0 0, Metrics {advance 10 0, top -8, bottom 2, left 1, right 9}
+test line 123
+  GetRenderMetrics(L1, out non-null) -> 0x0 {advance 0 0, top 0, bottom 0, left 0, right 0}
+test line 124
+  RefersRenderStep(L1) -> x 10, y 0, advanceX 0, advanceY 0, spacingProgress 0, orderer O2, Adjusting 0 0, Metrics {advance 6 0, top -12, bottom 3, left -1, right 5}
+test line 125
+  GetRenderMetrics(L1, out non-null) -> 0x0 {advance 10 0, top -8, bottom 2, left 1, right 9}
+test line 126
+  RefersRenderStep(L1) -> null
+test line 127
+  GetRenderMetrics(L1, out non-null) -> 0x0 {advance 16 0, top -12, bottom 3, left 1, right 15}
+test line 128
+  RefersRenderStep(L1) -> x 0, y 0, advanceX 0, advanceY 0, spacingProgress 0, orderer O1, Adjusting 0 0, Metrics {advance 10 0, top -8, bottom 2, left 1, right 9}
+test line 129
+  GetRenderMetrics(L1, out non-null) -> 0x0 {advance 0 0, top 0, bottom 0, left 0, right 0}
+test line 131
+  WritesOrder(L1, attribute 0x7efa, metrics null, orderer O3) -> 0x0
+test line 132
+  GetOrderingSpace(L1) -> 0x0 out1 0 out2 0 out3 0 out4 0
+test line 133
+  RefersRenderStep(L1) -> x 0, y 0, advanceX 0, advanceY 0, spacingProgress 0, orderer O3, Adjusting 0 0, Metrics {advance 0 0, top 0, bottom 0, left 0, right 0}
+test line 134
+  RefersRenderStep(L1) -> null
+test line 136
+  Clear(L1) -> 0x0
+test line 137
+  RefersRenderStep(L1) -> null
+test line 138
+  WritesOrder(L1, attribute 0xfa, metrics {advance 10 0, top -8, bottom 2, left 1, right 9}, orderer O1) -> 0x0
+test line 139
+  WritesOrder(L1, attribute 0x1fa, metrics {advance 6 0, top -12, bottom 3, left -1, right 5}, orderer O2) -> 0x0
+test line 140
+  WritesOrder(L1, attribute 0x1fa, metrics {advance 8 0, top -4, bottom 1, left 2, right 5}, orderer O4) -> 0x0
+test line 141
+  WritesOrder(L1, attribute 0xfa, metrics {advance 4 0, top -4, bottom 1, left 0, right 20}, orderer O3) -> 0x0
+test line 142
+  GetOrderingSpace(L1) -> 0x0 out1 28 out2 1 out3 0 out4 -16
+test line 143
+  RefersRenderStep(L1) -> x 0, y 0, advanceX 0, advanceY 0, spacingProgress 0, orderer O1, Adjusting 0 0, Metrics {advance 10 0, top -8, bottom 2, left 1, right 9}
+test line 144
+  RefersRenderStep(L1) -> x 10, y 0, advanceX 0, advanceY 0, spacingProgress 0, orderer O4, Adjusting 0 0, Metrics {advance 8 0, top -4, bottom 1, left 2, right 5}
+test line 145
+  RefersRenderStep(L1) -> x 18, y 0, advanceX 0, advanceY 0, spacingProgress 0, orderer O2, Adjusting 0 0, Metrics {advance 6 0, top -12, bottom 3, left -1, right 5}
+test line 146
+  RefersRenderStep(L1) -> x 24, y 0, advanceX 0, advanceY 0, spacingProgress 0, orderer O3, Adjusting 0 0, Metrics {advance 4 0, top -4, bottom 1, left 0, right 20}
+test line 147
+  RefersRenderStep(L1) -> null
+test line 149
+  Clear(L1) -> 0x0
+test line 150
+  WritesOrder(L1, attribute 0xfa, metrics {advance 10 0, top -8, bottom 2, left 1, right 9}, orderer O1) -> 0x0
+test line 151
+  WritesOrder(L1, attribute 0x1fa, metrics {advance 6 0, top -12, bottom 3, left -1, right 5}, orderer O2) -> 0x0
+test line 152
+  WritesOrder(L1, attribute 0x2fa, metrics {advance 8 0, top -4, bottom 1, left 2, right 5}, orderer O4) -> 0x0
+test line 153
+  WritesOrder(L1, attribute 0x2fa, metrics {advance 4 0, top -4, bottom 1, left 0, right 20}, orderer O3) -> 0x0
+test line 154
+  WritesOrder(L1, attribute 0x1fa, metrics {advance 10 0, top -8, bottom 2, left 1, right 9}, orderer O2) -> 0x0
+test line 155
+  WritesOrder(L1, attribute 0xfa, metrics {advance 6 0, top -12, bottom 3, left -1, right 5}, orderer O1) -> 0x0
+test line 156
+  RefersRenderStep(L1) -> x 0, y 0, advanceX 0, advanceY 0, spacingProgress 0, orderer O1, Adjusting 0 0, Metrics {advance 10 0, top -8, bottom 2, left 1, right 9}
+test line 157
+  RefersRenderStep(L1) -> x 10, y 0, advanceX 0, advanceY 0, spacingProgress 0, orderer O2, Adjusting 0 0, Metrics {advance 10 0, top -8, bottom 2, left 1, right 9}
+test line 158
+  RefersRenderStep(L1) -> x 20, y 0, advanceX 0, advanceY 0, spacingProgress 0, orderer O4, Adjusting 0 0, Metrics {advance 8 0, top -4, bottom 1, left 2, right 5}
+test line 159
+  RefersRenderStep(L1) -> x 28, y 0, advanceX 0, advanceY 0, spacingProgress 0, orderer O3, Adjusting 0 0, Metrics {advance 4 0, top -4, bottom 1, left 0, right 20}
+test line 160
+  RefersRenderStep(L1) -> x 32, y 0, advanceX 0, advanceY 0, spacingProgress 0, orderer O2, Adjusting 0 0, Metrics {advance 6 0, top -12, bottom 3, left -1, right 5}
+test line 161
+  RefersRenderStep(L1) -> x 38, y 0, advanceX 0, advanceY 0, spacingProgress 0, orderer O1, Adjusting 0 0, Metrics {advance 6 0, top -12, bottom 3, left -1, right 5}
+test line 162
+  RefersRenderStep(L1) -> null
+test line 164
+  WritesOrder(L2, attribute 0x800000fa, metrics {advance 10 0, top -8, bottom 2, left 1, right 9}, orderer O1) -> 0x0
+test line 165
+  GetOrderingSpace(L2) -> 0x0 out1 10 out2 1 out3 0 out4 1
+test line 166
+  WritesOrder(L2, attribute 0xfa, metrics {advance 8 0, top -4, bottom 1, left 2, right 5}, orderer O4) -> 0x0
+test line 167
+  GetOrderingSpace(L2) -> 0x0 out1 18 out2 1 out3 3 out4 3
+test line 168
+  WritesOrder(L2, attribute 0x400000fa, metrics {advance 6 0, top -12, bottom 3, left -1, right 5}, orderer O2) -> 0x0
+test line 169
+  GetOrderingSpace(L2) -> 0x0 out1 24 out2 1 out3 5 out4 1
+test line 170
+  RefersRenderStep(L2) -> x 0, y 0, advanceX 0, advanceY 0, spacingProgress 0, orderer O1, Adjusting 0 0, Metrics {advance 10 0, top -8, bottom 2, left 1, right 9}
+test line 171
+  RefersRenderStep(L2) -> x 10, y 0, advanceX 0, advanceY 0, spacingProgress 0.600000024, orderer O4, Adjusting 0 0, Metrics {advance 8 0, top -4, bottom 1, left 2, right 5}
+test line 172
+  RefersRenderStep(L2) -> x 18, y 0, advanceX 0, advanceY 0, spacingProgress 1, orderer O2, Adjusting 0 0, Metrics {advance 6 0, top -12, bottom 3, left -1, right 5}
+test line 173
+  RefersRenderStep(L2) -> null
+test line 175
+  Clear(L2) -> 0x0
+test line 176
+  WritesOrder(L2, attribute 0x800000fa, metrics {advance 10 0, top -8, bottom 2, left 1, right 9}, orderer O1) -> 0x0
+test line 177
+  WritesOrder(L2, attribute 0x1fa, metrics {advance 8 0, top -4, bottom 1, left 2, right 5}, orderer O4) -> 0x0
+test line 178
+  GetOrderingSpace(L2) -> 0x0 out1 18 out2 1 out3 3 out4 3
+test line 179
+  WritesOrder(L2, attribute 0x1fa, metrics {advance 6 0, top -12, bottom 3, left -1, right 5}, orderer O2) -> 0x0
+test line 180
+  GetOrderingSpace(L2) -> 0x0 out1 24 out2 1 out3 0 out4 3
+test line 181
+  WritesOrder(L2, attribute 0x800001fa, metrics {advance 4 0, top -4, bottom 1, left 0, right 20}, orderer O3) -> 0x0
+test line 182
+  GetOrderingSpace(L2) -> 0x0 out1 28 out2 1 out3 -16 out4 3
+test line 183
+  RefersRenderStep(L2) -> x 0, y 0, advanceX 0, advanceY 0, spacingProgress 0, orderer O1, Adjusting 0 0, Metrics {advance 10 0, top -8, bottom 2, left 1, right 9}
+test line 184
+  RefersRenderStep(L2) -> x 10, y 0, advanceX 0, advanceY 0, spacingProgress -0.0625, orderer O3, Adjusting 0 0, Metrics {advance 4 0, top -4, bottom 1, left 0, right 20}
+test line 185
+  RefersRenderStep(L2) -> x 14, y 0, advanceX 0, advanceY 0, spacingProgress 1, orderer O2, Adjusting 0 0, Metrics {advance 6 0, top -12, bottom 3, left -1, right 5}
+test line 186
+  RefersRenderStep(L2) -> x 20, y 0, advanceX 0, advanceY 0, spacingProgress 1, orderer O4, Adjusting 0 0, Metrics {advance 8 0, top -4, bottom 1, left 2, right 5}
+test line 187
+  RefersRenderStep(L2) -> null
+test line 189
+  WritesOrder(L3, attribute 0x800000fa, metrics {advance 10 0, top -8, bottom 2, left 1, right 9}, orderer O1) -> 0x0
+test line 190
+  WritesOrder(L3, attribute 0xfa, metrics {advance 8 0, top -4, bottom 1, left 2, right 5}, orderer O4) -> 0x0
+test line 191
+  GetOrderingSpace(L3) -> 0x0 out1 18 out2 5 out3 15 out4 9
+test line 192
+  RefersRenderStep(L3) -> x 0, y 0, advanceX 0, advanceY 0, spacingProgress 0, orderer O4, Adjusting 0 0, Metrics {advance 8 0, top -4, bottom 1, left 2, right 5}
+test line 193
+  RefersRenderStep(L3) -> x 8, y 0, advanceX 0, advanceY 0, spacingProgress 1, orderer O1, Adjusting 0 0, Metrics {advance 10 0, top -8, bottom 2, left 1, right 9}
+test line 194
+  RefersRenderStep(L3) -> null
+test line 195
+  GetRenderMetrics(L3, out non-null) -> 0x0 {advance 18 0, top -8, bottom 2, left 2, right 17}
+test line 199
+  Clear(L2) -> 0x0
+  WritesOrder(L2, attribute 0xfa, metrics {advance 1 0, top -1, bottom 1, left 0, right 1}, orderer O5) -> 0x0
+  WritesOrder(L2, attribute 0x1fa, metrics {advance 1 0, top -1, bottom 1, left 0, right 1}, orderer O6) -> 0x0
+  WritesOrder(L2, attribute 0x2fa, metrics {advance 1 0, top -1, bottom 1, left 0, right 1}, orderer O7) -> 0x0
+  WritesOrder(L2, attribute 0x3fa, metrics {advance 1 0, top -1, bottom 1, left 0, right 1}, orderer O8) -> 0x0
+  WritesOrder(L2, attribute 0x1fa, metrics {advance 1 0, top -1, bottom 1, left 0, right 1}, orderer O9) -> 0x0
+  WritesOrder(L2, attribute 0x1fa, metrics {advance 1 0, top -1, bottom 1, left 0, right 1}, orderer O10) -> 0x0
+  WritesOrder(L2, attribute 0xfa, metrics {advance 1 0, top -1, bottom 1, left 0, right 1}, orderer O11) -> 0x0
+  RefersRenderStep(L2) -> x 0, y 0, advanceX 0, advanceY 0, spacingProgress 0, orderer O5, Adjusting 0 0, Metrics {advance 1 0, top -1, bottom 1, left 0, right 1}
+  RefersRenderStep(L2) -> x 1, y 0, advanceX 0, advanceY 0, spacingProgress 0, orderer O10, Adjusting 0 0, Metrics {advance 1 0, top -1, bottom 1, left 0, right 1}
+  RefersRenderStep(L2) -> x 2, y 0, advanceX 0, advanceY 0, spacingProgress 0, orderer O9, Adjusting 0 0, Metrics {advance 1 0, top -1, bottom 1, left 0, right 1}
+  RefersRenderStep(L2) -> x 3, y 0, advanceX 0, advanceY 0, spacingProgress 0, orderer O7, Adjusting 0 0, Metrics {advance 1 0, top -1, bottom 1, left 0, right 1}
+  RefersRenderStep(L2) -> x 4, y 0, advanceX 0, advanceY 0, spacingProgress 0, orderer O8, Adjusting 0 0, Metrics {advance 1 0, top -1, bottom 1, left 0, right 1}
+  RefersRenderStep(L2) -> x 5, y 0, advanceX 0, advanceY 0, spacingProgress 0, orderer O6, Adjusting 0 0, Metrics {advance 1 0, top -1, bottom 1, left 0, right 1}
+  RefersRenderStep(L2) -> x 6, y 0, advanceX 0, advanceY 0, spacingProgress 0, orderer O11, Adjusting 0 0, Metrics {advance 1 0, top -1, bottom 1, left 0, right 1}
+  RefersRenderStep(L2) -> null
+test line 202
+  Clear(L2) -> 0x0
+  WritesOrder(L2, attribute 0xfa, metrics {advance 1 0, top -1, bottom 1, left 0, right 1}, orderer O5) -> 0x0
+  WritesOrder(L2, attribute 0x1fa, metrics {advance 1 0, top -1, bottom 1, left 0, right 1}, orderer O6) -> 0x0
+  WritesOrder(L2, attribute 0x1fa, metrics {advance 1 0, top -1, bottom 1, left 0, right 1}, orderer O7) -> 0x0
+  WritesOrder(L2, attribute 0x2fa, metrics {advance 1 0, top -1, bottom 1, left 0, right 1}, orderer O8) -> 0x0
+  WritesOrder(L2, attribute 0x2fa, metrics {advance 1 0, top -1, bottom 1, left 0, right 1}, orderer O9) -> 0x0
+  WritesOrder(L2, attribute 0xfa, metrics {advance 1 0, top -1, bottom 1, left 0, right 1}, orderer O10) -> 0x0
+  WritesOrder(L2, attribute 0x1fa, metrics {advance 1 0, top -1, bottom 1, left 0, right 1}, orderer O11) -> 0x0
+  WritesOrder(L2, attribute 0x2fa, metrics {advance 1 0, top -1, bottom 1, left 0, right 1}, orderer O12) -> 0x0
+  WritesOrder(L2, attribute 0x2fa, metrics {advance 1 0, top -1, bottom 1, left 0, right 1}, orderer O13) -> 0x0
+  WritesOrder(L2, attribute 0xfa, metrics {advance 1 0, top -1, bottom 1, left 0, right 1}, orderer O14) -> 0x0
+  RefersRenderStep(L2) -> x 0, y 0, advanceX 0, advanceY 0, spacingProgress 0, orderer O5, Adjusting 0 0, Metrics {advance 1 0, top -1, bottom 1, left 0, right 1}
+  RefersRenderStep(L2) -> x 1, y 0, advanceX 0, advanceY 0, spacingProgress 0, orderer O8, Adjusting 0 0, Metrics {advance 1 0, top -1, bottom 1, left 0, right 1}
+  RefersRenderStep(L2) -> x 2, y 0, advanceX 0, advanceY 0, spacingProgress 0, orderer O9, Adjusting 0 0, Metrics {advance 1 0, top -1, bottom 1, left 0, right 1}
+  RefersRenderStep(L2) -> x 3, y 0, advanceX 0, advanceY 0, spacingProgress 0, orderer O7, Adjusting 0 0, Metrics {advance 1 0, top -1, bottom 1, left 0, right 1}
+  RefersRenderStep(L2) -> x 4, y 0, advanceX 0, advanceY 0, spacingProgress 0, orderer O6, Adjusting 0 0, Metrics {advance 1 0, top -1, bottom 1, left 0, right 1}
+  RefersRenderStep(L2) -> x 5, y 0, advanceX 0, advanceY 0, spacingProgress 0, orderer O10, Adjusting 0 0, Metrics {advance 1 0, top -1, bottom 1, left 0, right 1}
+  RefersRenderStep(L2) -> x 6, y 0, advanceX 0, advanceY 0, spacingProgress 0, orderer O12, Adjusting 0 0, Metrics {advance 1 0, top -1, bottom 1, left 0, right 1}
+  RefersRenderStep(L2) -> x 7, y 0, advanceX 0, advanceY 0, spacingProgress 0, orderer O13, Adjusting 0 0, Metrics {advance 1 0, top -1, bottom 1, left 0, right 1}
+  RefersRenderStep(L2) -> x 8, y 0, advanceX 0, advanceY 0, spacingProgress 0, orderer O11, Adjusting 0 0, Metrics {advance 1 0, top -1, bottom 1, left 0, right 1}
+  RefersRenderStep(L2) -> x 9, y 0, advanceX 0, advanceY 0, spacingProgress 0, orderer O14, Adjusting 0 0, Metrics {advance 1 0, top -1, bottom 1, left 0, right 1}
+  RefersRenderStep(L2) -> null
+test line 205
+  Clear(L2) -> 0x0
+  WritesOrder(L2, attribute 0xfa, metrics {advance 1 0, top -1, bottom 1, left 0, right 1}, orderer O5) -> 0x0
+  WritesOrder(L2, attribute 0x2fa, metrics {advance 1 0, top -1, bottom 1, left 0, right 1}, orderer O6) -> 0x0
+  WritesOrder(L2, attribute 0x3fa, metrics {advance 1 0, top -1, bottom 1, left 0, right 1}, orderer O7) -> 0x0
+  WritesOrder(L2, attribute 0x3fa, metrics {advance 1 0, top -1, bottom 1, left 0, right 1}, orderer O8) -> 0x0
+  WritesOrder(L2, attribute 0x2fa, metrics {advance 1 0, top -1, bottom 1, left 0, right 1}, orderer O9) -> 0x0
+  WritesOrder(L2, attribute 0x1fa, metrics {advance 1 0, top -1, bottom 1, left 0, right 1}, orderer O10) -> 0x0
+  WritesOrder(L2, attribute 0xfa, metrics {advance 1 0, top -1, bottom 1, left 0, right 1}, orderer O11) -> 0x0
+  RefersRenderStep(L2) -> x 0, y 0, advanceX 0, advanceY 0, spacingProgress 0, orderer O5, Adjusting 0 0, Metrics {advance 1 0, top -1, bottom 1, left 0, right 1}
+  RefersRenderStep(L2) -> x 1, y 0, advanceX 0, advanceY 0, spacingProgress 0, orderer O10, Adjusting 0 0, Metrics {advance 1 0, top -1, bottom 1, left 0, right 1}
+  RefersRenderStep(L2) -> x 2, y 0, advanceX 0, advanceY 0, spacingProgress 0, orderer O6, Adjusting 0 0, Metrics {advance 1 0, top -1, bottom 1, left 0, right 1}
+  RefersRenderStep(L2) -> x 3, y 0, advanceX 0, advanceY 0, spacingProgress 0, orderer O8, Adjusting 0 0, Metrics {advance 1 0, top -1, bottom 1, left 0, right 1}
+  RefersRenderStep(L2) -> x 4, y 0, advanceX 0, advanceY 0, spacingProgress 0, orderer O7, Adjusting 0 0, Metrics {advance 1 0, top -1, bottom 1, left 0, right 1}
+  RefersRenderStep(L2) -> x 5, y 0, advanceX 0, advanceY 0, spacingProgress 0, orderer O9, Adjusting 0 0, Metrics {advance 1 0, top -1, bottom 1, left 0, right 1}
+  RefersRenderStep(L2) -> x 6, y 0, advanceX 0, advanceY 0, spacingProgress 0, orderer O11, Adjusting 0 0, Metrics {advance 1 0, top -1, bottom 1, left 0, right 1}
+  RefersRenderStep(L2) -> null
+test line 209
+  Clear(L2) -> 0x0
+test line 210
+  WritesOrder(L2, attribute 0xfa, metrics {advance 10 3, top -8, bottom 2, left 1, right 9}, orderer O1) -> 0x0
+test line 211
+  WritesOrder(L2, attribute 0xfa, metrics {advance 6 -1, top -12, bottom 3, left -1, right 5}, orderer O2) -> 0x0
+  RefersRenderStep(L2) -> x 0, y 0, advanceX 0, advanceY 0, spacingProgress 0, orderer O1, Adjusting 0 0, Metrics {advance 10 3, top -8, bottom 2, left 1, right 9}
+test line 213
+  (the caller wrote Adjusting 2 5 into the step it was given)
+  RefersRenderStep(L2) -> x 10, y 3, advanceX 0, advanceY 0, spacingProgress 0, orderer O2, Adjusting 0 0, Metrics {advance 6 -1, top -12, bottom 3, left -1, right 5}
+test line 216
+test line 217
+  GetRenderMetrics(L2, out non-null) -> 0x0 {advance 12 8, top -3, bottom 7, left 3, right 11}
+test line 218
+  RefersRenderStep(L2) -> null
+test line 219
+  GetRenderMetrics(L2, out non-null) -> 0x0 {advance 16 2, top -9, bottom 7, left 3, right 15}
+test line 222
+  GetOrderingSpace(L3) -> 0x0 out1 null out2 null out3 15 out4 null
+test line 223
+  harness: throws (second output set with a null fourth output: the module writes through the null pointer; module not called)
+test line 224
+  GetOrderingSpace(null) -> 0x80460002 out1 0 out2 null out3 null out4 null
+  harness: throws (module returned an error; the repository implementation throws where the PS4 module returns one)
+test line 225
+  GetRenderMetrics(null, out non-null) -> 0x80460002 {advance 0 0, top 0, bottom 0, left 0, right 0}
+  harness: throws (module returned an error; the repository implementation throws where the PS4 module returns one)
+test line 226
+  GetRenderMetrics(L3, out null) -> 0x80460002 
+  harness: throws (module returned an error; the repository implementation throws where the PS4 module returns one)
+test line 227
+  Clear(null) -> 0x80460002
+  harness: throws (module returned an error; the repository implementation throws where the PS4 module returns one)
+test line 230
+  RefersRenderStep(null) -> null
+test line 231
+  harness: throws (handle is not a live line; module not called)
+test line 232
+  harness: throws (handle is not a live line; module not called)
+test line 233
+  harness: throws (handle is not a live line; module not called)
+test line 235
+  harness: throws (handle is not a live line; module not called)
+test line 238
+  Destroy(L1) -> 0x0, pointer afterwards null
+test line 239
+  harness: Destroy of a null pointer or null line returns 0; module not called
+test line 240
+  harness: Destroy of a null pointer or null line returns 0; module not called
+test line 241
+  harness: throws (handle is not a live line; module not called)
+test line 242
+  harness: throws (handle is not a live line; module not called)
+test line 243
+  Destroy(L2) -> 0x0, pointer afterwards null
+test line 244
+  Destroy(L3) -> 0x0, pointer afterwards null
+font writing line: ok
