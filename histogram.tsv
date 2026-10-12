@@ -1,375 +1,396 @@
 family	opcode	mnemonic	wave32	wave64	shaders_wave32	shaders_wave64
-VOP2	0x8	v_mul_f32	6311	34705	39	515
-VOP2	0x1f	v_mac_f32	3582	21022	36	437
-VOP3	0x141	v_mad_f32	3378	18741	37	459
-SOPP	0xc		2914	14836	42	677
-VOP1	0x1	v_mov_b32	1706	10266	40	577
-VOP2	0x3	v_add_f32	1822	8885	37	390
-VOP2	0x4	v_sub_f32	984	6513	33	341
-SMEM	0x2	s_load_dwordx4	929	4911	40	461
-SOP1	0x3		1621	3999	42	524
-VOP2	0x20	v_madmk_f32	574	4106	29	231
-SOP1	0x4		99	4297	22	455
-SOPP	0x8		682	3588	41	391
-VOP3	0x101	v_cndmask_b32	398	3868	31	390
-VOP2	0x1	v_cndmask_b32	739	3491	38	399
-VOP2	0x25	v_add_nc_u32	463	3313	34	288
-VOP1	0x2a	v_rcp_f32	775	2613	37	319
-VOP3	0x11f	v_mac_f32	298	3029	29	246
-VOP2	0x10	v_max_f32	723	2596	32	264
-SMEM	0x8	s_buffer_load_dword	483	2580	40	460
-SOP2	0x27		90	2874	12	225
-SOP2	0x2		767	1882	38	174
-VOP1	0x6	v_cvt_f32_u32	566	2023	39	242
-SOP2	0xe		751	1780	36	272
-VOP2	0x1b	v_and_b32	291	2237	36	327
-VOPC	0xc5	v_cmp_ne_u32	645	1734	31	233
-SOPP	0x4		766	1490	31	218
-SMEM	0xa	s_buffer_load_dwordx4	362	1863	36	369
-VOP2	0x21	v_madak_f32	517	1665	32	212
-SOP2	0x1e		158	1989	31	322
-VINTRP	0x0		84	2016	5	223
-VINTRP	0x1		84	2016	5	223
-VOP1	0x33	v_sqrt_f32	464	1350	33	271
-VOP2	0x5	v_subrev_f32	301	1446	24	189
-VOP1	0x2e	v_rsq_f32	293	1443	33	288
-VOP3	0x360	v_readlane_b32	378	1330	13	49
-SOP2	0x26		325	1338	33	151
-SOPP	0x2		613	1000	33	155
+VOP2	0x8	v_mul_f32	6929	35562	42	561
+VOP2	0x1f	v_mac_f32	3876	21442	39	463
+VOP3	0x141	v_mad_f32	3710	19204	40	496
+SOPP	0xc		3131	15515	45	755
+VOP1	0x1	v_mov_b32	2035	10733	43	632
+VOP2	0x3	v_add_f32	2022	9225	40	419
+VOP2	0x4	v_sub_f32	1133	6613	36	358
+SOP1	0x3		1786	4265	45	578
+SMEM	0x2	s_load_dwordx4	989	5039	41	492
+VOP2	0x20	v_madmk_f32	623	4282	30	245
+SOP1	0x4		99	4544	22	494
+SOPP	0x8		785	3772	44	426
+VOP3	0x101	v_cndmask_b32	471	4027	34	429
+VOP2	0x1	v_cndmask_b32	797	3672	41	436
+VOP2	0x25	v_add_nc_u32	536	3579	37	311
+VOP2	0x10	v_max_f32	892	2716	35	282
+VOP1	0x2a	v_rcp_f32	824	2723	40	340
+VOP3	0x11f	v_mac_f32	402	3085	30	258
+SMEM	0x8	s_buffer_load_dword	527	2651	42	493
+SOP2	0x27		90	2957	12	236
+VOP1	0x6	v_cvt_f32_u32	715	2090	42	270
+VOP2	0x1b	v_and_b32	434	2334	39	350
+SOP2	0x2		778	1949	41	198
+SOP2	0xe		778	1846	39	287
+VOPC	0xc5	v_cmp_ne_u32	660	1777	34	248
+VOP2	0x21	v_madak_f32	559	1780	33	228
+SOPP	0x4		780	1531	32	232
+SMEM	0xa	s_buffer_load_dwordx4	376	1930	37	406
+SOP2	0x1e		191	2074	34	351
+VINTRP	0x0		84	2072	5	241
+VINTRP	0x1		84	2072	5	241
+VOP1	0x33	v_sqrt_f32	487	1368	34	279
+VOP2	0x5	v_subrev_f32	313	1457	25	195
+VOP1	0x2e	v_rsq_f32	306	1452	34	293
+VOP3	0x360	v_readlane_b32	378	1353	13	51
+SOP2	0x26		325	1363	33	165
+SMEM	0x3	s_load_dwordx8	452	1223	39	236
+SOPP	0x2		630	1035	36	172
+SOP2	0x10		197	1467	32	272
+VOP2	0x1a	v_lshlrev_b32	248	1389	33	300
+SOP2	0xf		0	1616	0	213
 VOP3	0x361	v_writelane_b32	576	1030	8	23
-SMEM	0x3	s_load_dwordx8	426	1180	38	225
-SOP2	0xf		0	1570	0	193
-SOP2	0x10		158	1387	29	247
-VOP2	0x1a	v_lshlrev_b32	235	1307	30	279
-SOPC	0x6		60	1357	13	223
-VOP2	0xf	v_min_f32	238	1138	32	237
-SOPP	0x0		140	1230	34	274
-SOP2	0xb		0	1363	0	289
-VOPC	0x4	v_cmp_gt_f32	273	1040	29	210
-SOPC	0x7		368	844	33	128
-VOP3	0x346	v_lshl_add_u32	107	1102	34	342
-VOP2	0x16	v_lshrrev_b32	115	1061	28	227
-SOP1	0x24		0	1166	0	151
-SOP2	0xa		317	774	35	231
-VOPC	0x1	v_cmp_lt_f32	261	738	36	150
-VOP1	0x5	v_cvt_f32_i32	84	906	17	135
-MIMG	0x27	image_sample	188	768	29	149
-VOP3	0x169	v_mul_lo_u32	208	716	28	196
-MIMG	0x20	image_sample	17	896	4	139
-MUBUF	0xc	buffer_load_dword	74	803	16	186
-VOP1	0x21	v_trunc_f32	117	757	12	84
-VOP1	0x25	v_exp_f32	131	743	24	152
-SMEM	0x9	s_buffer_load_dwordx2	182	680	40	367
-VOP2	0x26	v_sub_nc_u32	104	733	18	86
-SOPP	0x1		45	784	42	707
-VOP1	0x7	v_cvt_u32_f32	147	681	32	165
-SMEM	0xc	s_buffer_load_dwordx16	86	736	34	276
-VOP1	0x35	v_sin_f32	24	780	13	92
-VOPC	0xc2	v_cmp_eq_u32	95	666	24	147
-VOPC	0x3	v_cmp_le_f32	121	637	30	128
-VOP2	0x2f	v_cvt_pkrtz_f16_f32	14	744	6	207
-SMEM	0xb	s_buffer_load_dwordx8	117	627	33	277
-VOP1	0x20	v_fract_f32	191	545	28	115
-MIMG	0x2f	image_sample	108	625	8	28
-SOPP	0x20		42	672	42	666
-VOP3	0x36d	v_add3_u32	116	548	22	105
-MUBUF	0xe	buffer_load_dwordx4	102	562	15	124
-SOP2	0x15		0	659	0	225
-MIMG	0x0	image_load	213	445	30	122
-MUBUF	0x4	buffer_store_format_x	3	640	3	57
-VOPC	0xd5	v_cmpx_ne_u32	81	541	27	191
-SOP2	0x29		24	595	8	174
-VOP1	0x43	v_movrels_b32	152	458	13	35
-VOP3	0x14b	v_fma_f32	83	514	22	168
-SOP2	0x3		56	535	17	239
-SOPP	0x6		120	459	32	147
-SOP2	0x11		0	562	0	143
-SOP2	0x31		4	553	4	162
-SOPC	0x9		374	157	18	26
-VOP1	0x8	v_cvt_i32_f32	95	431	22	109
-VOP3	0x148	v_bfe_u32	107	419	10	89
-VOP2	0x1d	v_xor_b32	45	472	9	45
-VOP3	0x151	v_min3_f32	62	449	18	61
-VOPC	0xc3	v_cmp_le_u32	135	371	23	80
-VOP3	0x36f	v_lshl_or_b32	31	468	15	85
-VOP1	0x27	v_log_f32	68	387	20	143
-VOPC	0x6	v_cmp_ge_f32	60	388	25	132
-VOPC	0xd4	v_cmpx_gt_u32	82	349	27	153
-SOP2	0x20		56	368	19	134
-DS	0xdf	ds_write_b128	16	403	4	19
-MTBUF	0x3	tbuffer_load_format_xyzw	0	406	0	49
-DS	0xd	ds_write_b32	32	364	16	67
+VOP2	0xf	v_min_f32	377	1191	35	248
+SOPC	0x6		60	1412	13	243
+SOP2	0xb		0	1434	0	315
+SOPP	0x0		143	1290	37	296
+VOPC	0x4	v_cmp_gt_f32	289	1091	30	222
+VOP3	0x346	v_lshl_add_u32	113	1211	37	384
+VOP2	0x16	v_lshrrev_b32	174	1105	31	245
+SOPC	0x7		375	861	34	136
+SOP1	0x24		0	1173	0	155
+SOP2	0xa		319	826	36	250
+VOPC	0x1	v_cmp_lt_f32	280	780	39	163
+MIMG	0x27	image_sample	201	829	30	164
+VOP1	0x5	v_cvt_f32_i32	88	923	18	140
+VOP3	0x169	v_mul_lo_u32	208	729	28	201
+VOP1	0x25	v_exp_f32	133	794	25	162
+MIMG	0x20	image_sample	17	908	4	145
+MUBUF	0xc	buffer_load_dword	89	834	19	200
+SOPP	0x1		48	870	45	792
+SMEM	0x9	s_buffer_load_dwordx2	202	702	41	383
+VOP1	0x21	v_trunc_f32	117	770	12	85
+VOPC	0xc2	v_cmp_eq_u32	169	704	27	162
+VOP2	0x26	v_sub_nc_u32	104	752	18	95
+VOP1	0x7	v_cvt_u32_f32	151	700	33	177
+SMEM	0xc	s_buffer_load_dwordx16	92	746	35	281
+VOP1	0x35	v_sin_f32	26	785	14	95
+VOP2	0x2f	v_cvt_pkrtz_f16_f32	14	778	6	227
+SOPP	0x20		45	743	45	737
+VOPC	0x3	v_cmp_le_f32	128	652	31	136
+SMEM	0xb	s_buffer_load_dwordx8	122	646	34	295
+VOP1	0x20	v_fract_f32	203	557	29	121
+MIMG	0x2f	image_sample	124	625	9	28
+MUBUF	0xe	buffer_load_dwordx4	137	603	18	136
+VOP3	0x36d	v_add3_u32	133	603	23	122
+MIMG	0x0	image_load	223	492	31	130
+SOP2	0x15		0	684	0	235
+VOPC	0xd5	v_cmpx_ne_u32	100	566	29	200
+MUBUF	0x4	buffer_store_format_x	3	647	3	62
+SOP2	0x29		24	613	8	183
+SOP2	0x3		56	568	17	258
+SOPP	0x6		131	492	34	159
+VOP3	0x14b	v_fma_f32	87	528	23	173
+VOP1	0x43	v_movrels_b32	152	461	13	37
+VOP3	0x148	v_bfe_u32	177	429	13	95
+SOP2	0x11		0	583	0	152
+SOP2	0x31		4	571	4	171
+VOP1	0x8	v_cvt_i32_f32	100	452	23	112
+SOPC	0x9		374	168	18	28
+VOP3	0x36f	v_lshl_or_b32	37	503	17	93
+VOP2	0x1d	v_xor_b32	45	495	9	47
+VOP3	0x151	v_min3_f32	70	469	19	67
+VOPC	0xc3	v_cmp_le_u32	135	401	23	92
+VOP1	0x27	v_log_f32	71	431	21	152
+VOPC	0xd4	v_cmpx_gt_u32	82	381	27	171
+VOPC	0x6	v_cmp_ge_f32	63	396	26	136
+SOP2	0x20		66	382	20	138
+VOP1	0x2	v_readfirstlane_b32	116	311	23	88
+DS	0xdf	ds_write_b128	16	410	4	24
+MTBUF	0x3	tbuffer_load_format_xyzw	0	408	0	50
+DS	0xd	ds_write_b32	36	369	18	69
+MUBUF	0xf	buffer_load_dwordx3	37	354	6	96
 SOP1	0x14		0	391	0	14
-VOP1	0x2	v_readfirstlane_b32	114	265	22	80
-MUBUF	0xf	buffer_load_dwordx3	37	330	6	92
-SOPP	0x5		79	284	21	96
-DS	0x37	ds_read2_b32	32	328	2	27
-DS	0x36	ds_read_b32	50	309	15	58
-SOP2	0x21		0	358	0	179
-VOP3	0x154	v_max3_f32	22	333	15	80
-VOP3	0x157	v_med3_f32	91	262	17	63
-MIMG	0x8	image_store	67	284	25	131
-VOP3	0x16a	v_mul_hi_u32	50	293	12	51
+SOP2	0x21		0	381	0	191
+DS	0x36	ds_read_b32	54	323	17	62
+SOPP	0x5		80	294	22	105
+DS	0x37	ds_read2_b32	32	340	2	31
+VOP3	0x154	v_max3_f32	26	345	16	86
+VOP3	0x157	v_med3_f32	102	269	18	64
+MIMG	0x8	image_store	68	303	26	148
+VOP3	0x16a	v_mul_hi_u32	50	295	12	53
+MUBUF	0x3	buffer_load_format_xyzw	0	342	0	167
+VOP2	0x27	v_subrev_nc_u32	56	266	11	50
+SOPC	0xa		77	235	30	99
 MTBUF	0x2	tbuffer_load_format_xyz	0	312	0	52
-VOP2	0x27	v_subrev_nc_u32	56	250	11	42
-SOPC	0x13		0	299	0	18
-SOPC	0xa		72	218	29	93
-VOP3	0x14a	v_bfi_b32	30	259	11	106
+SOPC	0x13		0	308	0	23
+VOP2	0xb	v_mul_u32_u24	36	259	15	110
+VOP3	0x14a	v_bfi_b32	31	262	12	108
+EXP	0x0		7	286	6	248
 SOPK	0xf		29	255	6	27
-MUBUF	0x3	buffer_load_format_xyzw	0	282	0	157
-VOP2	0xb	v_mul_u32_u24	32	244	13	103
-EXP	0x0		7	265	6	227
-VOP1	0x24	v_floor_f32	56	214	12	50
+VOP1	0x24	v_floor_f32	59	225	13	54
+VOPC	0xd	v_cmp_neq_f32	23	252	16	90
+MUBUF	0x0	buffer_load_format_x	30	245	7	83
+SOP2	0x24		89	185	36	103
+SOP1	0xa		0	274	0	197
+MUBUF	0x1e	buffer_store_dwordx4	12	260	3	42
 MIMG	0x25	image_sample	8	259	2	57
-SOP1	0xa		0	266	0	191
-SOP2	0x24		84	180	35	99
-VOP1	0x36	v_cos_f32	26	232	13	69
-VOPC	0xd	v_cmp_neq_f32	18	240	15	85
-MUBUF	0x0	buffer_load_format_x	22	228	6	76
-VOPC	0x83	v_cmp_le_i32	17	228	2	41
-SOPC	0x8		53	189	22	61
-MIMG	0x24	image_sample	101	140	21	43
-SOP1	0x13		240	0	8	0
-VOP2	0x2b	v_mac_f32	6	233	6	45
-VOPC	0x11	v_cmpx_lt_f32	86	152	23	61
-VOP1	0x2b	v_rcp_iflag_f32	46	191	19	58
+MIMG	0x24	image_sample	108	159	22	48
+MUBUF	0x1c	buffer_store_dword	38	229	12	89
+VOP1	0x36	v_cos_f32	28	235	14	71
+VOPC	0xc1	v_cmp_lt_u32	32	223	13	56
+VOPC	0x11	v_cmpx_lt_f32	96	158	24	66
+VOPC	0x83	v_cmp_le_i32	17	237	2	44
+SOPC	0x8		54	200	23	66
+VOP2	0x2b	v_mac_f32	9	239	7	49
+VOP1	0x2b	v_rcp_iflag_f32	46	197	19	64
+SOP1	0x13		242	0	9	0
+SOP2	0x35		68	172	21	70
 MUBUF	0x2	buffer_load_format_xyz	0	234	0	125
-SOP2	0x35		68	160	21	63
-VOPC	0xc1	v_cmp_lt_u32	32	189	13	49
-VOP2	0x18	v_ashrrev_i32	20	201	9	81
+VOP2	0x18	v_ashrrev_i32	20	207	9	84
+VOPC	0xc4	v_cmp_gt_u32	26	200	16	56
+SOP1	0x3c		220	0	28	0
+SMEM	0x1	s_load_dwordx2	38	180	10	132
+VOPC	0xd1	v_cmpx_lt_u32	35	183	15	65
 SOPC	0x1		15	199	2	50
+VOP2	0x28	v_addc_u32	39	172	11	48
 VOP2	0x2d	v_madak_f32	19	191	5	45
-VOPC	0xd1	v_cmpx_lt_u32	33	176	14	58
-VOP2	0x28	v_addc_u32	39	168	11	44
-VOP3	0x128	v_addc_u32	53	150	13	47
-DS	0xff	ds_read_b128	16	186	4	20
-MUBUF	0x1e	buffer_store_dwordx4	2	195	1	30
-VOPC	0xc4	v_cmp_gt_u32	25	169	15	49
-EXP	0xc		1	187	1	187
-SOPP	0x10		1	187	1	187
-EXP	0x14		1	187	1	187
-VOPC	0x14	v_cmpx_gt_f32	37	149	17	79
-SMEM	0x1	s_load_dwordx2	28	157	8	119
-SMEM	0x0	s_load_dword	12	173	8	96
-VOPC	0xd2	v_cmpx_eq_u32	59	122	15	48
-MUBUF	0x1c	buffer_store_dword	11	170	10	75
+VOP3	0x128	v_addc_u32	53	155	13	52
+DS	0xff	ds_read_b128	16	191	4	22
+VOP2	0x1c	v_or_b32	57	145	21	66
+EXP	0xc		1	198	1	198
+SOPP	0x10		1	198	1	198
+EXP	0x14		1	198	1	198
+VOPC	0x14	v_cmpx_gt_f32	38	161	18	82
+SMEM	0x0	s_load_dword	14	184	10	104
+VOPC	0xd2	v_cmpx_eq_u32	67	127	18	52
+SOP2	0x0		56	138	13	37
+SOP2	0x4		56	138	13	37
+SOPC	0x0		18	173	2	35
+VOP3	0x371	v_and_or_b32	18	173	7	47
+MUBUF	0x1	buffer_load_format_xy	0	189	0	147
+SOPK	0x0		67	117	22	46
 MTBUF	0x0	tbuffer_load_format_x	0	180	0	1
-SOP2	0x0		56	124	13	34
-SOP2	0x4		56	124	13	34
-SOP1	0x3c		179	0	25	0
-VOP3	0x371	v_and_or_b32	18	161	7	43
-MUBUF	0x1	buffer_load_format_xy	0	179	0	139
-VOP2	0x1c	v_or_b32	50	128	18	56
-EXP	0x20		1	168	1	168
-SOP2	0x1		40	118	11	35
-SOP2	0x1b		0	157	0	81
-VOP3	0x143	v_mad_u32_u24	5	151	3	57
-VOPC	0xc6	v_cmp_ge_u32	5	149	3	30
-SOPK	0x0		66	88	21	36
-SOPC	0x0		18	136	2	25
+EXP	0x20		1	176	1	176
+SOP2	0x1b		0	176	0	86
+SOP2	0x14		172	0	31	0
+VOPC	0xc6	v_cmp_ge_u32	5	166	3	32
+VOP3	0x145	v_cubesc_f32	64	106	18	36
+VOP3	0x144	v_cubeid_f32	64	106	18	36
+VOP3	0x147	v_cubema_f32	64	106	18	36
+VOP3	0x146	v_cubetc_f32	64	106	18	36
+SOP2	0x1		40	124	11	37
+VOP3	0x143	v_mad_u32_u24	5	154	3	59
+VOP3	0x12f	v_cvt_pkrtz_f16_f32	4	153	3	117
+MUBUF	0xd	buffer_load_dwordx2	22	129	7	61
 VOP3	0x364	v_bcnt_u32_b32	0	151	0	5
-VOP3	0x12f	v_cvt_pkrtz_f16_f32	4	147	3	112
-VOP3	0x145	v_cubesc_f32	58	88	17	31
-VOP3	0x144	v_cubeid_f32	58	88	17	31
-VOP3	0x147	v_cubema_f32	58	88	17	31
-VOP3	0x146	v_cubetc_f32	58	88	17	31
+MUBUF	0x32	buffer_atomic_add	8	137	6	60
 VOP1	0x22	v_ceil_f32	0	144	0	23
-DS	0xe	ds_write2_b32	17	126	3	11
-SOP2	0x14		142	0	29	0
-VOP2	0x12	v_max_i32	11	130	4	26
-VOPC	0x82	v_cmp_eq_i32	5	132	3	28
-VOP1	0x23	v_rndne_f32	12	124	7	16
-EXP	0x21		0	135	0	135
+DS	0xe	ds_write2_b32	17	127	3	12
+VOP2	0x12	v_max_i32	11	131	4	27
+VOP1	0x23	v_rndne_f32	13	128	8	17
+VOPC	0x82	v_cmp_eq_i32	5	135	3	31
+VOPC	0x84	v_cmp_gt_i32	22	117	8	34
+VOPC	0xe	v_cmp_nlt_f32	21	118	9	30
+EXP	0x21		0	137	0	137
 VINTRP	0x2		0	135	0	63
-MUBUF	0x32	buffer_atomic_add	8	126	6	53
-MUBUF	0xd	buffer_load_dwordx2	15	114	5	57
-VOPC	0xe	v_cmp_nlt_f32	11	118	7	30
-EXP	0x1		6	118	4	113
-VOPC	0x84	v_cmp_gt_i32	19	104	5	31
+EXP	0x1		6	120	4	114
+SOPP	0x7		11	107	6	51
+VOP3	0x14e	v_alignbit_b32	16	101	1	7
 SOP1	0x37		0	117	0	29
-VOP3	0x14e	v_alignbit_b32	16	99	1	6
-SOPP	0x7		11	102	6	46
-EXP	0x22		0	113	0	113
-SOP2	0x32		29	80	13	37
-EXP	0x23		0	104	0	104
-SOP2	0x7		40	64	12	26
-SOPC	0xd		15	89	7	30
-VOPC	0x94	v_cmpx_gt_i32	10	93	6	52
-SOPC	0x4		44	59	21	30
-VOP3	0x149	v_bfe_i32	5	91	4	50
-SOPP	0xa		34	62	13	18
+SOP2	0x32		33	82	14	39
+EXP	0x22		0	114	0	114
+VOPC	0x94	v_cmpx_gt_i32	12	101	8	56
+SOPC	0xd		19	91	8	32
+SOP2	0x7		40	66	12	28
+EXP	0x23		0	105	0	105
+SOPC	0x4		44	60	21	31
+SOPP	0xa		38	62	15	18
+VOP3	0x149	v_bfe_i32	6	93	5	51
+SOPC	0xb		20	77	12	46
+SOP1	0x1f		20	75	9	26
+VOPC	0x13	v_cmpx_le_f32	34	60	7	30
 EXP	0x2		1	89	1	89
-SOPC	0xb		20	67	12	39
-VOPC	0x13	v_cmpx_le_f32	34	52	7	28
-SOP1	0x1f		20	63	9	25
-MIMG	0x47	image_gather4_lz	22	59	6	19
+SOP1	0x1d		33	54	10	23
+MIMG	0x47	image_gather4_lz	22	64	6	22
+VOPC	0x2	v_cmp_eq_f32	16	68	11	39
+VOP2	0x14	v_max_u32	14	69	6	16
 VOPC	0xc	v_cmp_nle_f32	0	79	0	32
+VOP3P	0x20	v_fma_f32	9	70	2	5
+SOP1	0x8		0	79	0	64
+VOP2	0x13	v_min_u32	15	63	8	23
 EXP	0x24		0	76	0	76
+VOP3	0x365	v_mbcnt_lo_u32_b32	3	72	3	20
 EXP	0x3		1	72	1	72
-VOP2	0x14	v_max_u32	6	67	5	15
-VOP2	0x13	v_min_u32	15	58	8	21
+VOP3	0x378	v_permlanex16_b32	2	71	1	21
+VOP3	0x372	v_or3_b32	13	60	5	20
 VOP3	0x176	v_mad_u64_u32	4	69	2	13
+VOP1	0x12	v_cvt_f32_ubyte1	2	70	1	29
+SOP1	0x28		0	72	0	25
+VOP3	0x366	v_mbcnt_hi_u32_b32	0	71	0	20
 VOP1	0x13	v_cvt_f32_ubyte2	0	70	0	29
-VOPC	0x2	v_cmp_eq_f32	15	55	10	34
-VOP1	0x12	v_cvt_f32_ubyte1	0	70	0	29
-SOP1	0x28		0	66	0	23
-VOP3	0x378	v_permlanex16_b32	2	62	1	19
-VOP3	0x365	v_mbcnt_lo_u32_b32	3	60	3	19
-SOP1	0x1d		24	39	8	13
-SOP1	0x8		0	63	0	54
+VOP3	0x347	v_add_lshl_u32	14	49	5	27
 MIMG	0xe6	image_bvh_intersect_ray	24	39	8	13
-VOP3	0x366	v_mbcnt_hi_u32_b32	0	59	0	19
+VOP2	0x11	v_min_i32	4	55	2	13
 EXP	0x25		0	59	0	59
-VOP3	0x347	v_add_lshl_u32	13	46	4	24
-VOP2	0x11	v_min_i32	3	53	1	12
+SOP1	0xb		23	35	17	27
 VOPC	0xd3	v_cmpx_le_u32	13	42	9	10
-VOPC	0x9	v_cmp_nge_f32	2	52	2	10
+VOPC	0x9	v_cmp_nge_f32	2	53	2	11
+MUBUF	0x1d	buffer_store_dwordx2	9	46	5	19
+VOPC	0x93	v_cmpx_le_i32	4	50	1	46
+SOP2	0x25		3	51	3	24
 EXP	0x4		0	53	0	28
-VOP3	0x372	v_or3_b32	13	39	5	17
-SOP2	0x25		3	49	3	22
-SOP1	0xb		21	31	16	24
-VOPC	0x93	v_cmpx_le_i32	4	47	1	44
 SOPK	0x10		23	27	9	15
-VOP1	0x38	v_bfrev_b32	3	42	3	38
+MIMG	0x37	image_sample_lz_o	0	47	0	7
+VOP1	0x38	v_bfrev_b32	3	43	3	39
 VOPC	0x1e	v_cmpx_nlt_f32	0	42	0	12
 MUBUF	0x3a	buffer_atomic_or	0	42	0	2
 EXP	0x26		0	40	0	40
 MUBUF	0x39	buffer_atomic_and	0	40	0	1
+MUBUF	0x7	buffer_store_format_xyzw	0	39	0	17
 VOP3	0x159	v_med3_u32	6	33	6	14
+VOPC	0x16	v_cmpx_ge_f32	14	23	7	10
+DS	0x3e	ds_append	2	35	1	7
 VOP1	0xa	v_cvt_f16_f32	3	33	3	9
-VOPC	0x16	v_cmpx_ge_f32	14	19	7	9
-VOPC	0x1b	v_cmpx_ngt_f32	0	31	0	4
-SOP2	0x5		0	31	0	9
+SOP2	0x5		0	34	0	10
+DS	0x20	ds_add_rtn_u32	10	23	10	23
+SOPP	0x9		4	29	4	28
+VOP1	0x42	v_movreld_b32	7	25	7	24
+VOPC	0x1b	v_cmpx_ngt_f32	0	32	0	5
+SOP2	0x1a		31	0	25	0
 SOP1	0x34		0	30	0	8
-SOPP	0x9		4	26	4	25
-VOP1	0x42	v_movreld_b32	7	22	7	22
+VOP1	0x39	v_ffbh_u32	0	29	0	5
 VOPC	0x85	v_cmp_ne_i32	0	29	0	5
-DS	0x20	ds_add_rtn_u32	8	21	8	21
 VOPC	0x1c	v_cmpx_nle_f32	0	29	0	24
-VOPC	0x1d	v_cmpx_neq_f32	6	21	6	19
+DS	0x76	ds_read_b64	4	24	3	16
+VOPC	0x1d	v_cmpx_neq_f32	6	22	6	20
+VOP1	0x11	v_cvt_f32_ubyte0	2	26	1	25
 VOP3	0x155	v_max3_i32	10	17	2	4
-SOP2	0x1a		26	0	22	0
+VOP3	0x369	v_cvt_pknorm_u16_f32	0	26	0	14
 SMEM	0x4	s_load_dwordx16	4	22	4	16
-VOP1	0x11	v_cvt_f32_ubyte0	0	26	0	25
 VOP3	0x363	v_bfm_b32	3	23	2	1
-VOP3	0x369	v_cvt_pknorm_u16_f32	0	25	0	13
+SOPC	0x2		0	25	0	15
+VOP1	0xd	v_cvt_flr_i32_f32	9	16	3	5
 EXP	0x27		0	25	0	25
-DS	0x3e	ds_append	2	23	1	6
-MUBUF	0x1d	buffer_store_dwordx2	3	22	3	12
-SOPC	0x2		0	24	0	14
+SOP2	0x19		0	25	0	14
 VOP2	0x2c	v_madmk_f32	0	24	0	6
 EXP	0x9		0	24	0	15
+VOPC	0x86	v_cmp_ge_i32	0	24	0	9
+SOP2	0x30		9	14	8	14
 SOP1	0x10		0	23	0	11
-SOP2	0x19		0	22	0	11
-VOPC	0x86	v_cmp_ge_i32	0	22	0	8
-SOP2	0x30		7	14	7	14
+DS	0x4d	ds_write_b64	6	16	3	10
 VOP3	0x15d	v_sad_u32	0	20	0	10
-VOP1	0xd	v_cvt_flr_i32_f32	6	14	2	4
-DS	0x76	ds_read_b64	4	16	3	12
 SOPC	0x3		0	20	0	9
+SOP2	0x2e		3	17	3	16
+SOP2	0x1f		8	11	4	5
 VOP3	0x152	v_min3_i32	6	13	2	4
 EXP	0x2a		0	19	0	19
 VOP1	0x37	v_not_b32	2	17	2	4
 VOPC	0x81	v_cmp_lt_i32	0	19	0	16
+VOPC	0xd6	v_cmpx_ge_u32	6	13	4	9
 EXP	0x29		0	19	0	19
 EXP	0x28		0	19	0	19
 DS	0xde	ds_write_b96	0	18	0	4
 VOPC	0xb	v_cmp_ngt_f32	4	14	4	12
-VOPC	0xd6	v_cmpx_ge_u32	6	12	4	8
-SOP2	0x2e		3	15	3	15
+SOP1	0x7		17	1	13	1
+VOP3	0xe4	v_cmp_gt_u64	0	17	0	13
 MUBUF	0x8	buffer_load_ubyte	0	17	0	9
-MUBUF	0x7	buffer_store_format_xyzw	0	17	0	12
 SOP2	0x6		0	17	0	7
-VOP3P	0x20	v_fma_f32	1	16	1	3
-VOP3	0xe4	v_cmp_gt_u64	0	16	0	12
-SOP2	0x1f		8	8	4	4
+SOPK	0x17		1	15	1	9
+VOPC	0x91	v_cmpx_lt_i32	6	10	6	10
 VOP3	0x156	v_max3_u32	0	16	0	14
 SOP2	0x17		0	16	0	13
+DS	0x77	ds_read2_b64	2	13	2	5
 VOP1	0x3a	v_ffbl_b32	8	7	4	5
 SOP2	0x12		0	15	0	5
 DS	0xa	ds_or_b32	4	11	4	9
-SOP1	0x7		15	0	11	0
-DS	0x4d	ds_write_b64	6	8	3	8
-VOPC	0x91	v_cmpx_lt_i32	4	10	4	10
-SOP1	0x3b		0	13	0	12
+SOP1	0x3b		0	14	0	13
+SOPP	0x12		4	9	4	5
 DS	0x0	ds_add_u32	5	8	2	5
 DS	0xfe	ds_read_b96	0	12	0	5
 VOP3	0x368	v_cvt_pknorm_i16_f32	0	12	0	5
-SOPK	0x17		1	10	1	6
+VOP3	0x351	v_min3_f16	0	12	0	2
+VOP3	0x354	v_max3_f16	0	12	0	2
 VOP3	0x345	v_xad_u32	0	10	0	3
-MIMG	0x37	image_sample_lz_o	0	10	0	2
+VOPC	0x88	v_cmp_class_f32	4	6	2	4
 SOP1	0x44		10	0	6	0
-SOP1	0x16		0	9	0	4
+SOP1	0x16		0	10	0	5
+VOPC	0x19	v_cmpx_nge_f32	1	8	1	8
+MUBUF	0x1f	buffer_store_dwordx3	0	9	0	8
 VOP3	0x158	v_med3_i32	0	8	0	1
 VOP3P	0x22	v_mad_mixhi_f16	0	8	0	1
-VOPC	0x19	v_cmpx_nge_f32	0	8	0	8
 VOP3P	0x21	v_mad_mixlo_f16	0	8	0	1
 SOP1	0x9		8	0	4	0
 VOPC	0x12	v_cmpx_eq_f32	0	8	0	3
-SOPP	0x12		4	4	4	4
+SOP2	0x9		0	8	0	8
+SOPC	0x12		0	8	0	3
+FLAT	0xc	flat_load_dword	0	8	0	3
 SOP2	0x16		7	0	7	0
 MIMG	0xe	image_get_resinfo	0	7	0	7
 MIMG	0x17	image_atomic_umax	0	7	0	2
+FLAT	0xe	flat_load_dwordx4	0	7	0	6
 SOP1	0x40		7	0	5	0
-SOP2	0x9		0	7	0	7
-SOPC	0x12		0	7	0	2
 VOP2	0x1e	v_xnor_b32	0	6	0	2
 FLAT	0xf	flat_load_dwordx3	0	6	0	1
 VOP2	0x2a	v_subrev_co_ci_u32	2	4	2	4
+SOP2	0x22		1	5	1	4
 MUBUF	0x5	buffer_store_format_xy	0	6	0	3
 VOP3	0x12a	v_subrev_co_ci_u32	2	4	2	4
+SOPC	0x5		0	5	0	4
 SOPK	0xd		4	1	4	1
-FLAT	0xe	flat_load_dwordx4	0	5	0	5
-SOP2	0x22		1	4	1	3
+VOP3	0x30f	v_add_i32	0	5	0	2
+SOP2	0x13		0	5	0	3
 VOP1	0xb	v_cvt_f32_f16	5	0	4	0
-VOP1	0x39	v_ffbh_u32	0	4	0	2
 SOPK	0xe		0	4	0	4
 MIMG	0x19	image_atomic_or	0	4	0	4
+VOPC	0xf5	v_cmpx_ne_u64	0	4	0	2
 DS	0xb0	ds_write_addtid_b32	0	4	0	2
 VOP3	0x153	v_min3_u32	0	4	0	1
-MUBUF	0x1f	buffer_store_dwordx3	0	4	0	4
 DS	0x2d	ds_wrxchg_rtn_b32	0	4	0	2
-DS	0x77	ds_read2_b64	2	2	2	2
-SOPC	0x5		0	4	0	3
+MIMG	0x57	image_gather4_lz_o	0	4	0	1
 SOP2	0x2f		0	4	0	4
-VOP3	0x30f	v_add_i32	0	4	0	1
 MIMG	0x44	image_gather4_l	0	4	0	1
 MUBUF	0x30	buffer_atomic_swap	0	4	0	2
 VOPC	0x95	v_cmpx_ne_i32	0	4	0	1
 MUBUF	0x38	buffer_atomic_umax	0	4	0	4
 DS	0xb1	ds_read_addtid_b32	0	4	0	2
 SOP1	0x6		0	4	0	4
+MUBUF	0x40	buffer_atomic_fmax	0	3	0	1
+MUBUF	0x3f	buffer_atomic_fmin	0	3	0	1
+DS	0x12	ds_min_f32	0	3	0	1
 VOP1	0x0	v_nop	0	3	0	1
-VOPC	0x88	v_cmp_class_f32	0	3	0	1
-SOP2	0x13		0	3	0	2
+VOPC	0xe1	v_cmp_lt_u64	0	3	0	1
+MUBUF	0x5a	buffer_atomic_or_x2	0	3	0	2
+FLAT	0xd	flat_load_dwordx2	0	3	0	2
 MIMG	0x11	image_atomic_add	1	2	1	2
 VOP1	0x14	v_cvt_f32_ubyte3	0	3	0	3
 VOP3	0x142	v_mad_i32_i24	0	3	0	1
+DS	0x13	ds_max_f32	0	3	0	1
 SOPK	0x5		0	2	0	2
 DS	0x4e	ds_write2_b64	2	0	2	0
 VOP3	0x14f	v_alignbyte_b32	0	2	0	1
+SOP2	0x23		0	2	0	1
 VOP3	0x36a	v_cvt_pk_u16_u32	0	2	0	2
 VOPC	0x92	v_cmpx_eq_i32	0	2	0	1
 MIMG	0x1	image_load_mip	0	2	0	1
+VOPC	0xe5	v_cmp_ne_u64	0	2	0	1
+SMEM	0x25		0	2	0	1
 DS	0x7	ds_min_u32	1	1	1	1
 VOP1	0x3b	v_ffbh_i32	0	2	0	1
 SOPK	0x8		0	2	0	2
+SOP2	0x34		0	2	0	1
+MUBUF	0x50	buffer_atomic_swap_x2	0	2	0	1
+VOP1	0xc	v_cvt_rpi_i32_f32	0	2	0	1
+SOP1	0x1b		2	0	1	0
 DS	0x3d	ds_consume	0	2	0	2
 VOP3	0x362	v_ldexp_f32	0	2	0	2
 DS	0x9	ds_and_b32	2	0	2	0
 EXP	0xd		0	2	0	2
+EXP	0x8		0	2	0	2
 MTBUF	0x1	tbuffer_load_format_xy	0	1	0	1
 MUBUF	0x33	buffer_atomic_sub	0	1	0	1
+VOPC	0x98	v_cmpx_class_f32	0	1	0	1
 VOPC	0x8	v_cmp_u_f32	0	1	0	1
 VOP3	0x2ff	v_lshlrev_b64	0	1	0	1
 SOP2	0x8		0	1	0	1
 MIMG	0xf	image_atomic_swap	0	1	0	1
 SOP1	0xf		0	1	0	1
 DS	0x8	ds_max_u32	0	1	0	1
-EXP	0x8		0	1	0	1
 EXP	0x2b		0	1	0	1
-FLAT	0xd	flat_load_dwordx2	0	1	0	1
 VOP2	0x9	v_mul_i32_i24	0	1	0	1
+SOPK	0xb		1	0	1	0
+VOP3P	0x12	v_pk_max_f16	0	1	0	1
+VOP3P	0x11	v_pk_min_f16	0	1	0	1
 SOPP	0x17		0	1	0	1
 SOP1	0x15		1	0	1	0
-FLAT	0xc	flat_load_dword	0	1	0	1
