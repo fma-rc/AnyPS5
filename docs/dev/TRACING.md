@@ -28,7 +28,6 @@ Set a switch before starting the emulator. Unless noted, any value enables it. M
 | Switch | Output |
 | --- | --- |
 | `APS5_TRACE_BIGBUF` | Each copied or written-back guest-memory range of at least 1 MiB. |
-| `APS5_TRACE_BINDLESS` | Bindless resource materialization and descriptor selection. |
 | `APS5_TRACE_BDA` | Shader memory accesses that make a program use the buffer-device-address path. |
 | `APS5_TRACE_BUFFER_WRITTEN` | Guest buffer elements classified as writable or read-only after descriptor population. |
 | `APS5_TRACE_CAPSYNC` | Waits for GPU writes needed by CPU accesses, including submission and range details. |
@@ -37,11 +36,13 @@ Set a switch before starting the emulator. Unless noted, any value enables it. M
 | `APS5_TRACE_DCC_KEYS` | Display and storage-image DCC key reads, writes, fills and clears. |
 | `APS5_TRACE_DISPATCH_CACHE` | Compute dispatch cache hits, misses and changed user-data words. |
 | `APS5_TRACE_DISPATCH_IO` | Compute dispatch resources; value `2` also prints small user-data buffers. |
+| `APS5_TRACE_DRAW_CACHE` | Every 10 seconds, draw-cache lookups, hits, misses by reason and evictions. |
 | `APS5_TRACE_DRAWS` | Draw inputs and per-draw timing phases. With `APS5_PROFILE_DRAW`, also prints the detailed draw lines. |
 | `APS5_TRACE_FILL_COVER` | Initial fill/image coverage mismatches and refused image-layer clears. |
 | `APS5_TRACE_FLUSH` | Storage images flushed to guest memory and ranges left for the CPU. |
 | `APS5_TRACE_GPU` | Queue submissions, packet execution, waits and display-buffer scanouts. |
 | `APS5_TRACE_HOST_IMPORT` | Host-import mapping attempts, memory-map details, failures and retirement. |
+| `APS5_TRACE_IMAGE_TABLE` | Every 10 seconds, image-table snapshot, key and structural-poison counts, and a line for each shader table it reads. |
 | `APS5_TRACE_INDIRECT_DRAWS` | Indirect draw packets that pass the draw precheck. |
 | `APS5_TRACE_LABEL` | `RELEASE_MEM` packets that target the address in this hexadecimal value. |
 | `APS5_TRACE_LATE_LABELS` | GPU label writes observed after their waiting submission was handled. |
@@ -65,6 +66,8 @@ See [Build](BUILD.md#performance-trace) for the trace format, summary fields and
 | `APS5_TRACE_SECONDS=<start>:<length>` | Records a window of presents by elapsed seconds after the first present. Cannot be set with `APS5_TRACE_FRAMES`. |
 | `APS5_TRACE_SUMMARY_EVERY=<seconds>` | Writes periodic summary lines without recording trace events. Can be combined with either window switch. |
 | `APS5_TRACE_DIR=<path>` | Writes performance capture and summary files to this directory instead of the working directory. |
+| `APS5_TRACE_EVENTS=<count>` | Sets the queue-worker and presenter event buffer size for a frame or seconds window. |
+| `APS5_TRACE_DRAW_PROGRAMS` | Prints one `[draw-programs]` line per draw with the selected programs and their addresses. |
 
 ## Shader registers
 
