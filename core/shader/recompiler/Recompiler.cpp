@@ -325,7 +325,7 @@ struct SourceEntry : std::enable_shared_from_this<SourceEntry> {
     // points into a registration the driver may replace while the entry lives on.
     std::vector<std::uint32_t> code;
     std::vector<std::uint32_t> linkedCallFallbacks;
-    std::shared_ptr<const IrResourcePlan> plan;
+    std::atomic<std::shared_ptr<const IrResourcePlan>> plan;
     // A plan build that threw (an unsupported resource chain or control flow) is remembered and
     // rethrown: the front end ran every pass before failing, ~13 ms per dispatch of a shader the
     // title issues every frame (0x1048947300 at the intro video). APS5_NO_FAILURE_MEMO=1 rebuilds.
@@ -396,7 +396,42 @@ bool diskPlans() {
     return enabled && ShaderDiskCache::Enabled() && !DebugProbeActive();
 }
 
-std::shared_ptr<SourceEntry> getSource(const RecompileRequest& request, ShaderPreparationContext* preparation = nullptr, bool reclaim = true) {
+std::shared_ptr<const IrResourcePlan> fillPlan(SourceEntry& source, const RecompileRequest& request, ShaderPreparationContext* preparation, bool reclaim, bool keepProgram) {
+    if (auto plan = source.plan.load(std::memory_order_acquire)) return plan;
+    if (FailureMemo() && source.planFailure) std::rethrow_exception(source.planFailure);
+    const bool disk = diskPlans();
+    std::vector<std::byte> planKey;
+    std::shared_ptr<const IrResourcePlan> plan;
+    if (disk) {
+        ShaderDiskCache::BuildPlanKey(request, HostSubgroupSize(request), planKey);
+        IrResourcePlan loaded;
+        if (ShaderDiskCache::LoadPlan(planKey, loaded)) {
+            loaded.shaderHash = request.shader.codeAddress;
+            plan = std::make_shared<const IrResourcePlan>(std::move(loaded));
+        }
+    }
+    if (plan == nullptr) {
+        try {
+            ResourceProgram resource(request, preparation, reclaim);
+            plan = std::move(resource.plan);
+            if (keepProgram) source.program = std::move(resource.program);
+        } catch (...) {
+            if (FailureMemo()) source.planFailure = std::current_exception();
+            throw;
+        }
+        if (disk) ShaderDiskCache::StorePlan(std::move(planKey), plan);
+    }
+    source.plan.store(plan, std::memory_order_release);
+    return plan;
+}
+
+std::shared_ptr<const IrResourcePlan> ensurePlan(SourceEntry& source, const RecompileRequest& request, ShaderPreparationContext* preparation, bool reclaim) {
+    if (auto plan = source.plan.load(std::memory_order_acquire)) return plan;
+    std::lock_guard lock(source.mutex);
+    return fillPlan(source, request, preparation, reclaim, source.variants.empty());
+}
+
+std::shared_ptr<SourceEntry> getSource(const RecompileRequest& request, ShaderPreparationContext* preparation = nullptr, bool reclaim = true, bool plan = true) {
     static PrimedSharedMutex mutex;
     // Entries whose code hashes alike share a bucket; the code comparison picks the right one.
     static std::unordered_map<std::vector<std::uint64_t>, std::vector<std::shared_ptr<SourceEntry>>, SourceKeyHash> sources;
@@ -436,33 +471,7 @@ std::shared_ptr<SourceEntry> getSource(const RecompileRequest& request, ShaderPr
             bucket.push_back(source);
         }
     }
-    {
-        std::lock_guard lock(source->mutex);
-        if (source->plan == nullptr) {
-            if (FailureMemo() && source->planFailure) std::rethrow_exception(source->planFailure);
-            const bool disk = diskPlans();
-            std::vector<std::byte> planKey;
-            if (disk) {
-                ShaderDiskCache::BuildPlanKey(request, HostSubgroupSize(request), planKey);
-                IrResourcePlan loaded;
-                if (ShaderDiskCache::LoadPlan(planKey, loaded)) {
-                    loaded.shaderHash = request.shader.codeAddress;
-                    source->plan = std::make_shared<const IrResourcePlan>(std::move(loaded));
-                }
-            }
-            if (source->plan == nullptr) {
-                try {
-                    ResourceProgram resource(request, preparation, reclaim);
-                    source->plan = std::move(resource.plan);
-                    source->program = std::move(resource.program);
-                } catch (...) {
-                    if (FailureMemo()) source->planFailure = std::current_exception();
-                    throw;
-                }
-                if (disk) ShaderDiskCache::StorePlan(std::move(planKey), source->plan);
-            }
-        }
-    }
+    if (plan) ensurePlan(*source, request, preparation, reclaim);
     return source;
 }
 
@@ -1054,6 +1063,7 @@ std::shared_ptr<const CompiledVariant> findOrCompileVariant(SourceEntry& source,
         }
     }
     if (variant == nullptr) {
+        if (source.program == nullptr) static_cast<void>(fillPlan(source, request, preparation, false, true));
         static const bool layoutPair = std::getenv("APS5_NO_PERF_LAYOUT_PAIR") == nullptr;
         std::exception_ptr emissionFailure;
         try {
@@ -1104,7 +1114,7 @@ RecompileResult RecompileImpl(const RecompileRequest& request) {
         return materializeResult(variant, request, snapshot);
     }
     const auto source = getSource(request);
-    materializer.Materialize(*source->plan, runtime, snapshot);
+    materializer.Materialize(*ensurePlan(*source, request, nullptr, true), runtime, snapshot);
     return materializeVariant(*source, request, snapshot);
 }
 
@@ -1312,7 +1322,7 @@ auto recompileReporting(const RecompileRequest& request, Impl&& impl) -> decltyp
 
 std::shared_ptr<const IrResourcePlan> GetResourcePlan(const RecompileRequest& request) {
     static_cast<void>(RequestInputInfo(request));
-    if (request.useCache) return getSource(request)->plan;
+    if (request.useCache) return ensurePlan(*getSource(request), request, nullptr, true);
     return makeResourcePlan(request);
 }
 
@@ -1344,7 +1354,7 @@ std::shared_ptr<const ResourceCapture> CaptureResources(const RecompileRequest& 
     auto capture = std::make_shared<ResourceCapture>();
     if (request.useCache) {
         capture->source = getSource(request);
-        capture->plan = capture->source->plan;
+        capture->plan = ensurePlan(*capture->source, request, nullptr, true);
     } else {
         capture->plan = makeResourcePlan(request);
     }
@@ -1367,7 +1377,7 @@ std::shared_ptr<const SourceHandle> PrepareShader(const RecompileRequest& reques
     return recompileReporting(request, [&]() -> std::shared_ptr<const SourceHandle> {
         static_cast<void>(RequestInputInfo(request));
         auto handle = std::make_shared<SourceHandle>();
-        handle->source = getSource(request, preparation, false);
+        handle->source = getSource(request, preparation, false, false);
         RecompileCacheKey::BuildInterface(request, handle->staticKey);
         handle->staticKey.push_back(HostSubgroupSize(request));
         bool cacheHit = false;
@@ -1428,13 +1438,13 @@ std::optional<PreparedShaderInvocation> PreparedShaderInvocation::TryCreate(cons
 std::shared_ptr<const ResourceCapture> PreparedShaderInvocation::Capture(const SrtRuntime& runtime) const {
     auto capture = std::make_shared<ResourceCapture>();
     capture->source = handle->source;
-    capture->plan = handle->source->plan;
+    capture->plan = ensurePlan(*handle->source, request, nullptr, true);
     materializeCapture(*capture, runtime);
     return capture;
 }
 
 std::shared_ptr<const RecompileResult> PreparedShaderInvocation::Materialize(const ResourceCapture& capture) const {
-    if (capture.source != handle->source || capture.plan != handle->source->plan) throw std::runtime_error("ShaderRecompiler: resource capture belongs to another prepared shader");
+    if (capture.source != handle->source || capture.plan != handle->source->plan.load(std::memory_order_acquire)) throw std::runtime_error("ShaderRecompiler: resource capture belongs to another prepared shader");
     if (request.useCache && ResultMemo()) return materializePreparedMemoized(*handle->source, handle->artifact, request, capture.snapshot, true, nullptr);
     auto result = std::make_shared<RecompileResult>(materializeResult(*handle->artifact, request, capture.snapshot));
     result->cacheHit = true;
@@ -1462,7 +1472,7 @@ std::shared_ptr<const RecompileResult> RegistrationResult(const RecompileRequest
 
 std::shared_ptr<const RecompileResult> MaterializeShader(const RecompileRequest& request, const ResourceCapture& capture, const SourceHandle& handle) {
     if (!MatchesPreparedShader(request, handle)) throw std::runtime_error("ShaderRecompiler: prepared artifact does not match the static ABI");
-    if (capture.source != handle.source || capture.plan != handle.source->plan) throw std::runtime_error("ShaderRecompiler: resource capture belongs to another prepared shader");
+    if (capture.source != handle.source || capture.plan != handle.source->plan.load(std::memory_order_acquire)) throw std::runtime_error("ShaderRecompiler: resource capture belongs to another prepared shader");
     if (request.useCache && ResultMemo()) return materializePreparedMemoized(*handle.source, handle.artifact, request, capture.snapshot, true, nullptr);
     auto result = std::make_shared<RecompileResult>(materializeResult(*handle.artifact, request, capture.snapshot));
     result->cacheHit = true;
@@ -1478,7 +1488,7 @@ std::shared_ptr<const ResourceCapture> CaptureResources(const RecompileRequest& 
     if (request.shader.stage != ShaderStage::Compute && request.shader.stage != ShaderStage::Fragment) static_cast<void>(RequestInputInfo(request));
     auto capture = std::make_shared<ResourceCapture>();
     capture->source = handle.source;
-    capture->plan = handle.source->plan;
+    capture->plan = ensurePlan(*handle.source, request, nullptr, true);
     if (profile) capture->sourceNanoseconds = static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - started).count());
     materializeCapture(*capture, runtime);
     return capture;

@@ -1975,9 +1975,26 @@ std::filesystem::path planEntryPath(PlanFixture& fixture) {
 
 int runPlanLoadingProcess(std::string_view mode) {
     if (mode == "--load-plan-switch") setEnvironment("APS5_TRACE_IMAGE_TABLE", "1");
-    if (mode == "--load-plan-off") setEnvironment("APS5_NO_PERF_DISK_PLANS", "1");
+    if (mode == "--load-plan-off" || mode == "--load-plan-lazy-off") setEnvironment("APS5_NO_PERF_DISK_PLANS", "1");
     auto fixtures = planFixtures();
     const auto count = fixtures.size();
+    if (mode == "--load-plan-lazy" || mode == "--load-plan-lazy-off") {
+        const bool disk = mode == "--load-plan-lazy";
+        std::vector<std::shared_ptr<const SourceHandle>> handles;
+        for (auto& fixture : fixtures) handles.push_back(PrepareShader(fixture.Request(true)));
+        const auto prepared = ShaderDiskCache::Totals();
+        const auto preparedCounts = " (front end builds " + std::to_string(FrontEndBuilds()) + ", plan hits " + std::to_string(prepared.planHits) + ", plan misses " + std::to_string(prepared.planMisses) + ", variant hits " + std::to_string(prepared.hits) + ", variant misses " + std::to_string(prepared.misses) + ")";
+        require(FrontEndBuilds() == 0u && prepared.planHits == 0u && prepared.planMisses == 0u && prepared.hits == count && prepared.misses == 0u, "preparing shaders without capturing resources loaded or built resource plans" + preparedCounts);
+        const auto request = fixtures.front().Request(true);
+        RequestMemoryView view(request.context.memory);
+        static_cast<void>(CaptureResources(request, view.MakeRuntime(request.context.userData, request.shader.codeAddress), *handles.front()));
+        const auto captured = ShaderDiskCache::Totals();
+        const auto capturedCounts = " (front end builds " + std::to_string(FrontEndBuilds()) + ", plan hits " + std::to_string(captured.planHits) + ")";
+        if (disk) require(FrontEndBuilds() == 0u && captured.planHits == 1u, "capturing one shader's resources did not load exactly its plan" + capturedCounts);
+        else require(FrontEndBuilds() == 1u && captured.planHits == 0u, "capturing one shader's resources did not build exactly its plan" + capturedCounts);
+        std::cout << "preparing " << count << " shaders left their plans unloaded; one capture " << (disk ? "loaded" : "built") << " exactly one\n";
+        return 0;
+    }
     std::vector<std::shared_ptr<const IrResourcePlan>> plans;
     const auto outputs = preparedOutputs(fixtures, &plans);
     ShaderDiskCache::Flush();
@@ -2053,6 +2070,8 @@ void verifyPlanAcrossProcesses(const char* self) {
     };
     run("--load-plan");
     run("--load-plan-off");
+    run("--load-plan-lazy");
+    run("--load-plan-lazy-off");
     std::vector<std::byte> entry;
     const auto damaged = planEntryPath(fixtures.front());
     require(ReadWholeFile(damaged, entry), "cannot read a stored plan entry");
