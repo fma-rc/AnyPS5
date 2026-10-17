@@ -1,13 +1,14 @@
 #ifndef CORE_SHADER_RECOMPILER_IMAGETABLEABI_HPP
 #define CORE_SHADER_RECOMPILER_IMAGETABLEABI_HPP
 
+#include <array>
 #include <cstdint>
 #include <optional>
 #include <string_view>
 
 namespace ShaderRecompiler::ImageTableAbi {
 
-inline constexpr std::uint32_t Version = 2;
+inline constexpr std::uint32_t Version = 3;
 
 inline constexpr std::uint32_t HeaderVersion = 0;
 inline constexpr std::uint32_t HeaderElementBase = 1;
@@ -17,7 +18,12 @@ inline constexpr std::uint32_t HeaderPoisonCount = 4;
 inline constexpr std::uint32_t HeaderElementFaults = 5;
 inline constexpr std::uint32_t HeaderSamplerFaults = 6;
 inline constexpr std::uint32_t HeaderTableCount = 7;
-inline constexpr std::uint32_t HeaderWords = 8;
+inline constexpr std::uint32_t HeaderGuestElements = 8;
+inline constexpr std::uint32_t HeaderGuestState = 9;
+inline constexpr std::uint32_t HeaderGuestUsed = 10;
+inline constexpr std::uint32_t HeaderGuestSamplers = 11;
+inline constexpr std::uint32_t HeaderGuestFault = 12;
+inline constexpr std::uint32_t HeaderWords = 13;
 
 inline constexpr std::uint32_t TableMapStart = 0;
 inline constexpr std::uint32_t TableKeyCount = 1;
@@ -51,6 +57,12 @@ inline constexpr std::uint32_t FirstEntryPoison = 2;
 inline constexpr std::uint32_t MaxKeys = 65536;
 inline constexpr std::uint32_t MaxModes = 256;
 inline constexpr std::uint32_t ImageElementBudget = 65536;
+
+inline constexpr std::uint32_t GuestElementWords = 8;
+inline constexpr std::uint32_t GuestSamplerWords = 4;
+inline constexpr std::uint32_t GuestStateHost = 0;
+inline constexpr std::uint32_t GuestStateSampled = 1;
+inline constexpr std::uint32_t GuestStateCapable = 2;
 inline constexpr std::uint32_t SamplerElementBudget = 1024;
 
 enum class PoisonReason : std::uint32_t {
@@ -76,6 +88,7 @@ enum class PoisonReason : std::uint32_t {
     DriverRejected,
     UnsupportedOperation,
     OffsetCarry,
+    GuestSampler,
     Count
 };
 
@@ -103,6 +116,7 @@ constexpr std::string_view PoisonReasonName(PoisonReason reason) {
         case PoisonReason::DriverRejected: return "rejected by the driver";
         case PoisonReason::UnsupportedOperation: return "unsupported operation";
         case PoisonReason::OffsetCarry: return "record offset carries past 32 bits";
+        case PoisonReason::GuestSampler: return "the guest sampler met a texel, coordinate or LOD it does not implement";
         case PoisonReason::Count: break;
     }
     return "unknown";
@@ -114,6 +128,40 @@ constexpr std::uint32_t PoisonCode(std::uint32_t poison) {
 
 constexpr std::uint32_t TableHeader(std::uint32_t table) {
     return HeaderWords + TableWords * table;
+}
+
+constexpr bool GuestSampleSupported(const std::array<std::uint32_t, 8>& image, const std::array<std::uint32_t, 4>& sampler) {
+    const std::uint32_t format = (image[1] >> 20u) & 0x1ffu;
+    const std::uint32_t textureMinLod = (image[1] >> 8u) & 0xfffu;
+    const std::uint32_t baseLevel = (image[3] >> 12u) & 0xfu;
+    const std::uint32_t lastLevel = (image[3] >> 16u) & 0xfu;
+    const std::uint32_t swizzle = (image[3] >> 20u) & 0x1fu;
+    const std::uint32_t type = (image[3] >> 28u) & 0xfu;
+    const std::uint32_t maxMip = (image[5] >> 4u) & 0xfu;
+    const std::uint32_t clampX = sampler[0] & 7u;
+    const std::uint32_t clampY = (sampler[0] >> 3u) & 7u;
+    const std::uint32_t samplerMinLod = sampler[1] & 0xfffu;
+    const std::uint32_t samplerMaxLod = (sampler[1] >> 12u) & 0xfffu;
+    const std::uint32_t magFilter = (sampler[2] >> 20u) & 3u;
+    const std::uint32_t minFilter = (sampler[2] >> 22u) & 3u;
+    const std::uint32_t mipFilter = (sampler[2] >> 26u) & 3u;
+    const bool rgba8 = format == 56u;
+    const bool bc = format == 169u || format == 170u || format == 175u || format == 177u || format == 179u || format == 181u || format == 182u;
+    const bool srgb = format == 170u || format == 182u;
+    if (!rgba8 && !bc) return false;
+    if (type != 9u || baseLevel != 0u || maxMip != lastLevel || textureMinLod != 0u) return false;
+    if (rgba8 ? (swizzle != 0u && swizzle != 9u) || lastLevel != 0u : swizzle != 0u && swizzle != 1u && swizzle != 5u && swizzle != 9u) return false;
+    for (std::uint32_t channel = 0; channel < 4u; ++channel) {
+        const std::uint32_t selector = (image[3] >> (channel * 3u)) & 7u;
+        if (selector == 2u || selector == 3u) return false;
+    }
+    if (swizzle == 0u && image[4] != 0u) return false;
+    if ((clampX != 0u && clampX != 2u) || (clampY != 0u && clampY != 2u) || magFilter != minFilter || magFilter > 1u) return false;
+    if (samplerMinLod != 0u || samplerMaxLod < (lastLevel << 8u) || (sampler[0] >> 9u) != 0u || (sampler[2] & 0xfffffu) != 0u) return false;
+    if (lastLevel != 0u && (clampX != 2u || clampY != 2u || (mipFilter != 1u && mipFilter != 2u))) return false;
+    if (format == 179u && magFilter != 0u && mipFilter == 2u && lastLevel != 0u) return false;
+    if (srgb && magFilter != 0u) return false;
+    return true;
 }
 
 constexpr std::optional<std::uint32_t> ScalarBufferDword(std::uint32_t offset, std::uint32_t immediate, std::uint64_t size) {

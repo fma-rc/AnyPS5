@@ -125,6 +125,14 @@ struct ImageTableReuseCounts {
     std::uint64_t resolved = 0;
 };
 ImageTableReuseCounts ImageTableReuses();
+// Image table elements bound for the guest sampler, promoted to host textures after a use read
+// them, and guest-capable ones kept on the host path by the surface (GuestSampledEligible).
+struct GuestTableElementCounts {
+    std::uint64_t bound = 0;
+    std::uint64_t promotions = 0;
+    std::uint64_t hostKept = 0;
+};
+GuestTableElementCounts GuestTableElements();
 
 struct PresyncSurface {
     std::uint64_t address;
@@ -362,6 +370,12 @@ private:
         bool storage = false;
         std::vector<std::size_t> elementTextures;
         std::vector<std::pair<std::uint32_t, std::uint32_t>> samplerRejections;
+        // Elements bound for the guest sampler (no host texture), read back after completion.
+        struct GuestElement {
+            std::uint32_t element;
+            std::array<std::uint32_t, 8> words;
+        };
+        std::vector<GuestElement> guestElements;
     };
     std::vector<TableStage> tableStages;
     std::array<std::size_t, 2> tableBindings{std::numeric_limits<std::size_t>::max(), std::numeric_limits<std::size_t>::max()};
@@ -373,6 +387,8 @@ private:
     void addSamplerTable(const ShaderRecompiler::DescriptorBinding& binding, VkShaderStageFlags flags, TableStage& table);
     void resolveImageTables();
     void finishImageTables();
+    // Promotes the guest-sampled elements the completed use read (ImageTableAbi used words).
+    void promoteGuestElements() const;
 
     // A host-imported buffer region the set reads in place, with its import's identity at build time.
     struct DirectRegion {

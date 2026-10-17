@@ -1095,6 +1095,10 @@ ResolvedImageTables ResourceMaterializer::ResolveImageTables(const ShaderInfo& i
         return Abi::PoisonCode(found->second);
     };
     std::map<std::tuple<std::array<std::uint32_t, 8>, RdnaImageDimension, bool, DescriptorBindingKind>, std::uint32_t> elementIndex;
+    std::vector<bool> elementGuest;
+    const auto guestMode = [](const ImageResource& mode) {
+        return mode.conversionFormat == IrBufferFormat::Invalid && !mode.depthBits && !mode.depthUnorm16 && !mode.srgbDecode && !mode.constantSwizzle && !mode.packed && !mode.cube && !mode.depthCompare && mode.emulatedCompare == 0u && mode.packedFormat == IrBufferFormat::Invalid && mode.dimension == RdnaImageDimension::Dim2D && mode.numericClass == IrTextureNumericClass::Float;
+    };
     std::vector<std::uint32_t> directSamplers(info.images.size(), 0u);
     std::vector<bool> reducingSampler(info.images.size(), false);
     for (const auto& pair : info.sampledPairs) {
@@ -1133,7 +1137,9 @@ ResolvedImageTables ResourceMaterializer::ResolveImageTables(const ShaderInfo& i
                     record[Abi::ImageRecordFlags] = poison(resource, PoisonReason::Budget, &words);
                 } else {
                     if (inserted) out.elements.push_back({element, mode.dimension, mode.depthCompare, kind, 0u});
+                    if (inserted) elementGuest.push_back(true);
                     out.elements[found->second].samplers |= directSamplers[resource];
+                    elementGuest[found->second] = elementGuest[found->second] && image.guestSample && guestMode(mode);
                     record[Abi::ImageRecordFlags] = decoded << Abi::ModeShift;
                     record[Abi::ImageRecordElement] = found->second;
                 }
@@ -1224,6 +1230,33 @@ ResolvedImageTables ResourceMaterializer::ResolveImageTables(const ShaderInfo& i
     out.map.resize(out.map.size() + out.elements.size(), 0u);
     out.map[Abi::HeaderSamplerFaults] = static_cast<std::uint32_t>(out.map.size());
     out.map.resize(out.map.size() + out.samplers.size() / Abi::SamplerEntryElements, 0u);
+    out.map[Abi::HeaderGuestElements] = static_cast<std::uint32_t>(out.map.size());
+    for (const auto& element : out.elements) out.map.insert(out.map.end(), element.words.begin(), element.words.end());
+    out.map[Abi::HeaderGuestState] = static_cast<std::uint32_t>(out.map.size());
+    bool anyGuest = false;
+    for (std::size_t index = 0; index < out.elements.size(); ++index) {
+        const auto& element = out.elements[index];
+        bool capable = elementGuest[index] && element.samplers != 0u;
+        for (std::uint32_t sampler = 0; capable && sampler < 32u && sampler < info.samplers.size(); ++sampler) {
+            if (((element.samplers >> sampler) & 1u) == 0u) continue;
+            const auto& words = snapshot.samplers.at(sampler).dwords;
+            capable = Abi::GuestSampleSupported(element.words, {words[0], words[1], words[2], words[3]});
+        }
+        anyGuest = anyGuest || capable;
+        out.map.push_back(capable ? Abi::GuestStateCapable : Abi::GuestStateHost);
+    }
+    out.map[Abi::HeaderGuestUsed] = static_cast<std::uint32_t>(out.map.size());
+    out.map.resize(out.map.size() + out.elements.size(), 0u);
+    out.map[Abi::HeaderGuestSamplers] = static_cast<std::uint32_t>(out.map.size());
+    for (std::uint32_t sampler = 0; sampler < info.samplers.size(); ++sampler) {
+        const auto& words = snapshot.samplers.at(sampler).dwords;
+        if (info.samplers[sampler].table == NoTable) out.map.insert(out.map.end(), words.begin(), words.begin() + Abi::GuestSamplerWords);
+        else out.map.resize(out.map.size() + Abi::GuestSamplerWords, 0u);
+    }
+    if (anyGuest) {
+        const auto resource = static_cast<std::uint32_t>(std::find_if(info.images.begin(), info.images.end(), [](const ImageResource& image) { return image.guestSample; }) - info.images.begin());
+        out.map[Abi::HeaderGuestFault] = poison(resource, PoisonReason::GuestSampler, nullptr);
+    }
     out.faults = static_cast<std::uint32_t>(expected.size() + static_cast<std::size_t>(std::count(outside.begin(), outside.end(), true)));
     return out;
 }

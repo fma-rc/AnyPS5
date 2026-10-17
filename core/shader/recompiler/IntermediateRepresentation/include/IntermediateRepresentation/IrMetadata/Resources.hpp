@@ -100,6 +100,7 @@ struct ImageResource {
     std::uint32_t emulatedCompare = 0;
     std::uint32_t table = NoTable;
     TableOperation tableOperation = TableOperation::Supported;
+    bool guestSample = false;
 
     bool operator==(const ImageResource& other) const = default;
 };

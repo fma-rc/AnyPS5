@@ -4370,6 +4370,55 @@ void ShaderResources::addSamplerTable(const ShaderRecompiler::DescriptorBinding&
     bindings.push_back(std::move(item));
 }
 
+namespace {
+
+// Image table elements the guest sampler read, by T# words: their next resolve builds the host
+// texture (host mode), elements never sampled never get one.
+struct GuestTableElements {
+    std::mutex mutex;
+    std::set<std::array<std::uint32_t, 8>> promoted;
+    std::atomic<std::uint64_t> bound{0};
+    std::atomic<std::uint64_t> promotions{0};
+    std::atomic<std::uint64_t> hostKept{0};
+    std::atomic<std::int64_t> lastReport{0};
+};
+
+GuestTableElements& GuestElements() {
+    static GuestTableElements elements;
+    return elements;
+}
+
+bool GuestElementPromoted(const std::array<std::uint32_t, 8>& words) {
+    auto& elements = GuestElements();
+    std::lock_guard lock(elements.mutex);
+    return elements.promoted.contains(words);
+}
+
+// The guest sampler reads guest memory through the BDA page table: only a surface served from a
+// host import, with no DCC, pipe-bank swizzle, array, MSAA or border swizzle, and whose bytes no
+// storage image holds pending results for (those keep the view of that image, see cachedTexture).
+bool GuestSampledEligible(const Context& context, const GuestTextureResource& resource, std::uint64_t guestBytes, bool firstLayer) {
+    if (firstLayer || resource.dccAddress != 0 || resource.pipeBankXor != 0 || resource.bcSwizzle != 0 || resource.baseArray != 0 || resource.samples != 1 || resource.dimension != TextureDimension::k2D) return false;
+    if (!HostImportCovers(context, resource.baseAddress, static_cast<std::size_t>(guestBytes))) return false;
+    const std::array ranges{std::pair{resource.baseAddress, resource.baseAddress + guestBytes}};
+    return !StorageTexture::AnyPendingOverlaps(ranges);
+}
+
+void reportGuestElements() {
+    auto& elements = GuestElements();
+    const auto nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
+    auto last = elements.lastReport.load();
+    if (nowMs - last < 10000 || !elements.lastReport.compare_exchange_strong(last, nowMs)) return;
+    std::size_t promoted = 0;
+    {
+        std::lock_guard lock(elements.mutex);
+        promoted = elements.promoted.size();
+    }
+    AgcDriver::ProfilePrint_nid_no_patch("[guest-tables] guest-sampled element bindings %llu, promotions %llu (%llu elements promoted), guest-capable elements kept on the host path %llu\n", static_cast<unsigned long long>(elements.bound.load()), static_cast<unsigned long long>(elements.promotions.load()), static_cast<unsigned long long>(promoted), static_cast<unsigned long long>(elements.hostKept.load()));
+}
+
+}
+
 void ShaderResources::resolveImageTables() {
     const auto none = [](const std::array<std::size_t, 2>& set) { return set[0] == std::numeric_limits<std::size_t>::max() && set[1] == std::numeric_limits<std::size_t>::max(); };
     if (none(tableBindings) && none(storageTableBindings)) return;
@@ -4411,10 +4460,21 @@ void ShaderResources::resolveImageTables() {
             table.elementTextures[element] = textures.size() - 1u;
             item->imageAllocations[static_cast<std::size_t>(table.elementBase) + element] = textures.size() - 1u;
         };
+        namespace Abi = ShaderRecompiler::ImageTableAbi;
+        const auto guestState = table.map[Abi::HeaderGuestState];
+        const auto guestCandidate = [&](std::uint32_t element) {
+            if (table.map[guestState + element] != Abi::GuestStateCapable) return false;
+            const auto words = std::span<const std::uint32_t>(binding.guestDescriptor).subspan(static_cast<std::size_t>(element) * 8u, 8u);
+            std::array<std::uint32_t, 8> key{};
+            std::copy(words.begin(), words.end(), key.begin());
+            return std::equal(key.begin(), key.end(), table.map.begin() + table.map[Abi::HeaderGuestElements] + static_cast<std::size_t>(element) * Abi::GuestElementWords) && !GuestElementPromoted(key);
+        };
+        bool guestTable = false;
+        for (std::uint32_t element = 0; element < binding.count && !guestTable; ++element) guestTable = guestCandidate(element);
         const auto state = CurrentTableState();
         std::vector<std::shared_ptr<Texture>> cached;
         const bool storageTable = std::find(binding.imageWritten.begin(), binding.imageWritten.end(), true) != binding.imageWritten.end();
-        if (auto* reused = storageTable ? nullptr : FindReusedTable(context.device, binding, state); reused != nullptr && TableCurrent(*reused) && CachedTableTextures(*reused, cached)) {
+        if (auto* reused = storageTable || guestTable ? nullptr : FindReusedTable(context.device, binding, state); reused != nullptr && TableCurrent(*reused) && CachedTableTextures(*reused, cached)) {
             auto next = cached.begin();
             for (std::uint32_t element = 0; element < binding.count; ++element) {
                 const auto words = std::span<const std::uint32_t>(binding.guestDescriptor).subspan(static_cast<std::size_t>(element) * 8u, 8u);
@@ -4492,6 +4552,19 @@ void ShaderResources::resolveImageTables() {
                 bindings[storageBinding].imageAllocations[absolute] = storageTextures.size() - 1u;
                 continue;
             }
+            if (guestTable && guestCandidate(element)) {
+                if (GuestSampledEligible(context, resource, guestBytes, firstLayer)) {
+                    CompletePendingCpuWrites(context, resource.baseAddress, static_cast<std::size_t>(guestBytes));
+                    table.map[guestState + element] = Abi::GuestStateSampled;
+                    std::array<std::uint32_t, 8> key{};
+                    std::copy(words.begin(), words.end(), key.begin());
+                    table.guestElements.push_back({element, key});
+                    GuestElements().bound.fetch_add(1, std::memory_order_relaxed);
+                    reusable = false;
+                    continue;
+                }
+                GuestElements().hostKept.fetch_add(1, std::memory_order_relaxed);
+            }
             if (item == nullptr) {
                 table.map[faults + element] = rejectTableElement(table, words, "a sampled image table entry has no sampled image table binding");
                 reusable = false;
@@ -4533,6 +4606,29 @@ void ShaderResources::resolveImageTables() {
         }
     }
     reportTextureCounters();
+    reportGuestElements();
+}
+
+void ShaderResources::promoteGuestElements() const {
+    namespace Abi = ShaderRecompiler::ImageTableAbi;
+    for (const auto& table : tableStages) {
+        if (table.guestElements.empty()) continue;
+        const auto bytes = allocations.at(table.mapAllocation).buffer->Bytes();
+        const auto used = static_cast<std::size_t>(table.map[Abi::HeaderGuestUsed]);
+        auto& elements = GuestElements();
+        for (const auto& guest : table.guestElements) {
+            std::uint32_t word = 0;
+            std::memcpy(&word, bytes.data() + (used + guest.element) * sizeof(std::uint32_t), sizeof(word));
+            if (word == 0u) continue;
+            std::lock_guard lock(elements.mutex);
+            if (elements.promoted.insert(guest.words).second) elements.promotions.fetch_add(1, std::memory_order_relaxed);
+        }
+    }
+}
+
+GuestTableElementCounts GuestTableElements() {
+    const auto& elements = GuestElements();
+    return {elements.bound.load(), elements.promotions.load(), elements.hostKept.load()};
 }
 
 ImageTableReuseCounts ImageTableReuses() {
@@ -5011,10 +5107,12 @@ void ShaderResources::MarkGpuWrites(Recorder& recorder) {
 }
 
 void ShaderResources::CheckFaults() const {
+    promoteGuestElements();
     if (bda) bda->CheckFault();
 }
 
 void ShaderResources::WriteBackBuffers() {
+    promoteGuestElements();
     if (bda) bda->CheckFault();
     if (SkipWriteBack()) return;
     guestMemory.WriteBack();

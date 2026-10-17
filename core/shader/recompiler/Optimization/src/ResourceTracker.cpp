@@ -133,6 +133,7 @@ public:
         if (m_bdaTraces > bdaTraceLimit) std::fprintf(stderr, "[bda] %u more address accesses in this program not shown\n", m_bdaTraces - bdaTraceLimit);
         CheckTableStores();
         AssignTables();
+        AssignGuestSampling();
         LinkImageAliases();
         for (const auto& patch : m_handlePatches) {
             patch.handle->SetFlags<std::uint32_t>(patch.resource);
@@ -1659,6 +1660,7 @@ private:
         }
         AddHandlePatch(handle, resource);
         std::uint32_t sampler = 0;
+        bool fixedSampler = false;
         if (imageInfo.needsSampler) {
             if (inst.ArgumentCount() < 2) {
                 fail("sampled image operation has no sampler handle");
@@ -1666,6 +1668,7 @@ private:
             IrValue* samplerHandle = inst.Argument(1)->Resolve();
             std::uint32_t samplerSource = 0;
             const TableColumnPlan* samplerColumn = FindTableColumn(*samplerHandle);
+            fixedSampler = samplerColumn == nullptr;
             if (samplerColumn != nullptr) {
                 samplerSource = samplerColumn->source;
             } else {
@@ -1680,6 +1683,19 @@ private:
             AddSampledPair(resource, sampler, flags.pc);
         }
         AddMemoryPatch(flags.index, resource, sampler, imageInfo.needsSampler);
+        const auto sampleFlags = memory.imageSampleFlags;
+        const bool lodOnly = (sampleFlags & ~(RdnaImageSampleFlagLod | RdnaImageSampleFlagLevelZero)) == 0u && (sampleFlags != 0u || m_program.Resources().stage != IrShaderStage::Pixel);
+        const bool guestAccess = op == IrOpcode::ImageSampleRaw && fixedSampler && lodOnly && memory.imageDimension == RdnaImageDimension::Dim2D && memory.dataBits == 32u && !memory.imagePacked;
+        if (m_guestAccess.size() <= resource) m_guestAccess.resize(resource + 1u, true);
+        m_guestAccess[resource] = m_guestAccess[resource] && guestAccess;
+    }
+
+    void AssignGuestSampling() {
+        for (std::uint32_t resource = 0; resource < m_info.images.size(); ++resource) {
+            auto& image = m_info.images[resource];
+            image.guestSample = image.table != NoTable && image.tableOperation == TableOperation::Supported && !image.written && !image.atomic && resource < m_guestAccess.size() && m_guestAccess[resource];
+            m_info.usesDma = m_info.usesDma || image.guestSample;
+        }
     }
 
     const DescriptorSource* Source(std::uint32_t source) const {
@@ -1718,6 +1734,7 @@ private:
     std::uint32_t m_currentBlock = std::numeric_limits<std::uint32_t>::max();
     std::vector<HandlePatch> m_handlePatches;
     std::vector<MemoryPatch> m_memoryPatches;
+    std::vector<bool> m_guestAccess;
     // APS5_TRACE_BDA: address accesses seen by Collect (the first bdaTraceLimit are printed).
     unsigned m_bdaTraces = 0;
     std::unordered_map<std::uint32_t, std::vector<const IrValue*>> m_memoryUsers;

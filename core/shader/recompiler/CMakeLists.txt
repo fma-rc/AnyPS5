@@ -4,7 +4,7 @@ function(add_shader_recompiler target runtimeTarget)
         message(FATAL_ERROR "Shader recompiler requires an existing runtime target: ${runtimeTarget}")
     endif()
 
-    if(ANYPS5_ENABLE_SPIRV_TOOLS AND NOT TARGET SPIRV-Tools-opt)
+    if(NOT TARGET SPIRV-Tools-opt)
         set(SPIRV-Headers_SOURCE_DIR "${ANYPS5_SPIRV_HEADERS_SOURCE_DIR}")
         set(SPIRV_SKIP_EXECUTABLES ON)
         set(SPIRV_SKIP_TESTS ON)
@@ -138,6 +138,7 @@ function(add_shader_recompiler target runtimeTarget)
             ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/SpirvBackend/src/SpirvBufferFormat.cpp
             ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/SpirvBackend/src/SpirvRuntimeBuffer.cpp
             ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/SpirvBackend/src/SpirvSpecialization.cpp
+            ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/SpirvBackend/src/SpirvGuestSample.cpp
 
             ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/SpirvBackend/src/SpirvMemory/SpirvBufferAccess.cpp
             ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/SpirvBackend/src/SpirvMemory/SpirvConstants.cpp
@@ -174,6 +175,7 @@ function(add_shader_recompiler target runtimeTarget)
             "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/*.cpp"
             "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/*.hpp"
             "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/*.h"
+            "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/*.glsl"
             "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/*.cmake"
             "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/CMakeLists.txt"
     )
@@ -312,6 +314,20 @@ function(add_shader_recompiler target runtimeTarget)
     )
     target_sources(${target} PRIVATE "${shaderCacheVersionSource}")
 
+    set(guestSampleSource "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/SpirvBackend/shaders/GuestSampleLibrary.glsl")
+    set(guestSampleSpv "${shaderCacheGeneratedDir}/GuestSampleLibrary.spv")
+    set(guestSampleHeader "${shaderCacheGeneratedDir}/GuestSampleLibrary_spv.h")
+    add_custom_command(
+            OUTPUT "${guestSampleHeader}"
+            COMMAND ${CMAKE_COMMAND} -E make_directory "${shaderCacheGeneratedDir}"
+            COMMAND "$<TARGET_FILE:glslang-standalone>" -S comp -V --target-env vulkan1.1 --keep-uncalled -o "${guestSampleSpv}" "${guestSampleSource}"
+            COMMAND ${CMAKE_COMMAND} -DINPUT=${guestSampleSpv} -DOUTPUT=${guestSampleHeader} -DSYMBOL=GUEST_SAMPLE_LIBRARY_SPV -P "${PROJECT_SOURCE_DIR}/core/libs/prx/libSceAgcDriver/embed_spirv.cmake"
+            DEPENDS "${guestSampleSource}" "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/SpirvBackend/shaders/GuestSampleTables.glsl" glslang-standalone
+            VERBATIM
+    )
+    target_sources(${target} PRIVATE "${guestSampleHeader}")
+    target_include_directories(${target} PRIVATE "${shaderCacheGeneratedDir}")
+
     set_target_properties(${target} PROPERTIES
             POSITION_INDEPENDENT_CODE ON
             CXX_EXTENSIONS OFF
@@ -321,6 +337,7 @@ function(add_shader_recompiler target runtimeTarget)
             ${runtimeTarget}
             glslang
             SPIRV
+            SPIRV-Tools-link
     )
 
     if(ANYPS5_ENABLE_SPIRV_TOOLS)

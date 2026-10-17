@@ -1,4 +1,5 @@
 #include "SpirvBackend/SpirvModuleEmitter.hpp"
+#include "SpirvBackend/SpirvGuestSample.hpp"
 #include "SpirvBackend/SpirvBufferFormat.hpp"
 #include "SpirvBackend/SpirvEmitterHelpers.hpp"
 #include "SpirvBackend/SpirvEmitterInstructions.hpp"
@@ -1167,6 +1168,7 @@ void EmitProgram(SpirvEmitterState& state) {
     if (state.pixelValidMaskVariable != 0u) {
         state.module.AddFunction(spv::OpVariable, TypePointer(state, spv::StorageClassFunction, TypeU32(state)), state.pixelValidMaskVariable, spv::StorageClassFunction);
     }
+    DeclareGuestSampleVariables(state);
     for (std::uint32_t half = 0; half < state.laneCount; half++) {
         auto& lane = half == 0u ? ctx : high;
         if (lane.scratchU32Variable != 0u) {
