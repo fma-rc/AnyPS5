@@ -1,5 +1,4 @@
 #include "SpirvBackend/SpirvGuestSample.hpp"
-#include "SpirvBackend/SpirvBda.hpp"
 #include "SpirvBackend/SpirvEmitterHelpers.hpp"
 #include "GuestSampleLibrary_spv.h"
 #include <spirv-tools/libspirv.hpp>
@@ -65,35 +64,28 @@ void ForEachInstruction(std::span<const std::uint32_t> module, TVisit&& visit) {
 std::vector<std::uint32_t> PrepareLibrary(std::uint32_t addressing, std::uint32_t memoryModel) {
     const std::span<const std::uint32_t> library(GUEST_SAMPLE_LIBRARY_SPV, std::size(GUEST_SAMPLE_LIBRARY_SPV));
     std::uint32_t sampleId = 0;
-    std::uint32_t loadId = 0;
     std::uint32_t mainId = 0;
     ForEachInstruction(library, [&](std::uint32_t opcode, std::span<const std::uint32_t> words) {
         if (opcode != spv::OpName) return;
         const auto name = LiteralString(words.subspan(2));
         if (name.starts_with("sampleGuest(")) sampleId = words[1];
-        else if (name.starts_with("guestLoad32(")) loadId = words[1];
         else if (name == "main") mainId = words[1];
     });
-    if (sampleId == 0u || loadId == 0u || mainId == 0u) throw std::runtime_error("guest sampler: the library lacks sampleGuest, guestLoad32 or main");
+    if (sampleId == 0u || mainId == 0u) throw std::runtime_error("guest sampler: the library lacks sampleGuest or main");
     std::vector<std::uint32_t> out(library.begin(), library.begin() + HeaderWords);
     const std::array<std::uint32_t, 1> linkage{spv::CapabilityLinkage};
     Append(out, spv::OpCapability, {linkage});
     bool decorated = false;
     bool skipping = false;
-    bool body = false;
     ForEachInstruction(library, [&](std::uint32_t opcode, std::span<const std::uint32_t> words) {
         if (!decorated && !Preamble(opcode)) {
-            for (const auto& [id, name, type] : {std::tuple{sampleId, std::string_view("sampleGuest"), spv::LinkageTypeExport}, std::tuple{loadId, std::string_view("guestLoad32"), spv::LinkageTypeImport}}) {
-                const std::array<std::uint32_t, 2> head{id, spv::DecorationLinkageAttributes};
-                const auto text = NameWords(name);
-                const std::array<std::uint32_t, 1> kind{static_cast<std::uint32_t>(type)};
-                Append(out, spv::OpDecorate, {head, text, kind});
-            }
+            const std::array<std::uint32_t, 2> head{sampleId, spv::DecorationLinkageAttributes};
+            const auto text = NameWords("sampleGuest");
+            const std::array<std::uint32_t, 1> kind{static_cast<std::uint32_t>(spv::LinkageTypeExport)};
+            Append(out, spv::OpDecorate, {head, text, kind});
             decorated = true;
         }
         if (opcode == spv::OpEntryPoint || opcode == spv::OpExecutionMode || opcode == spv::OpExecutionModeId) return;
-        // glslang decorates its gl_WorkGroupSize constant (1, 1, 1), which would override the
-        // shader's LocalSize once linked in.
         if (opcode == spv::OpDecorate && words[2] == spv::DecorationBuiltIn) return;
         if (opcode == spv::OpName && words[1] == mainId) return;
         if (opcode == spv::OpMemoryModel) {
@@ -101,74 +93,57 @@ std::vector<std::uint32_t> PrepareLibrary(std::uint32_t addressing, std::uint32_
             Append(out, spv::OpMemoryModel, {model});
             return;
         }
-        if (opcode == spv::OpFunction) {
-            skipping = words[2] == mainId;
-            body = words[2] == loadId;
-        }
-        const bool end = opcode == spv::OpFunctionEnd;
-        const bool keep = !skipping && (!body || opcode == spv::OpFunction || opcode == spv::OpFunctionParameter || end);
-        if (keep) out.insert(out.end(), words.begin(), words.end());
-        if (end) {
-            skipping = false;
-            body = false;
-        }
+        if (opcode == spv::OpFunction) skipping = words[2] == mainId;
+        if (!skipping) out.insert(out.end(), words.begin(), words.end());
+        if (opcode == spv::OpFunctionEnd) skipping = false;
     });
     return out;
 }
 
-void DefineGuestSampleFunctions(SpirvEmitterState& state) {
+void DeclareGuestSampleFunction(SpirvEmitterState& state) {
     const auto u32 = TypeU32(state);
-    const auto u64 = TypeScalarU64(state);
     const auto vec4 = TypeU32Vector(state, 4);
     const auto vec4Pointer = TypePointer(state, spv::StorageClassFunction, vec4);
     const auto u32Pointer = TypePointer(state, spv::StorageClassFunction, u32);
-    const auto u64Pointer = TypePointer(state, spv::StorageClassFunction, u64);
-    const auto sampleType = state.module.Type(spv::OpTypeFunction, vec4, vec4Pointer, vec4Pointer, vec4Pointer, vec4Pointer, u32Pointer);
-    const auto loadType = state.module.Type(spv::OpTypeFunction, u32, u64Pointer);
+    const auto sampleType = state.module.Type(spv::OpTypeFunction, vec4, vec4Pointer, vec4Pointer, vec4Pointer, vec4Pointer, vec4Pointer, u32Pointer);
     state.module.EmitCapability(spv::CapabilityLinkage);
     const auto label = state.currentLabel;
     state.module.BeginHelperFunction();
     state.guestSampleFunction = state.module.AllocateId();
     state.module.AddFunction(spv::OpFunction, vec4, state.guestSampleFunction, spv::FunctionControlMaskNone, sampleType);
-    for (std::uint32_t parameter = 0; parameter < 5u; ++parameter) state.module.AddFunction(spv::OpFunctionParameter, parameter < 4u ? vec4Pointer : u32Pointer, state.module.AllocateId());
-    state.module.AddFunction(spv::OpFunctionEnd);
-    const auto load = state.module.AllocateId();
-    state.module.AddFunction(spv::OpFunction, u32, load, spv::FunctionControlMaskNone, loadType);
-    const auto parameter = state.module.AllocateId();
-    state.module.AddFunction(spv::OpFunctionParameter, u64Pointer, parameter);
-    EmitLabel(state, state.module.AllocateId());
-    const auto address = state.module.AllocateId();
-    state.module.AddFunction(spv::OpLoad, u64, address, parameter);
-    const auto bytes = [&] {
-        const auto pair = state.module.AllocateId();
-        state.module.AddFunction(spv::OpFunctionCall, TypeU32Vector(state, 2), pair, state.bdaDwordReadFunctions[0][0], address, ConstantU32(state, 0u));
-        const auto value = state.module.AllocateId();
-        state.module.AddFunction(spv::OpCompositeExtract, u32, value, pair, 0u);
-        return value;
-    };
-    std::uint32_t value = 0;
-    if (state.bdaProbeFunction != 0u) {
-        const auto physical = state.module.AllocateId();
-        state.module.AddFunction(spv::OpFunctionCall, u64, physical, state.bdaProbeFunction, address, ConstantU32(state, 4u), ConstantU32(state, 0u));
-        const auto usable = Binary(state, spv::OpLogicalAnd, TypeBool(state), Binary(state, spv::OpINotEqual, TypeBool(state), physical, BdaConstant(state, 0u)), Binary(state, spv::OpIEqual, TypeBool(state), Binary(state, spv::OpBitwiseAnd, u64, physical, BdaConstant(state, 3u)), BdaConstant(state, 0u)));
-        value = EmitValueIfElse(state, usable, u32, [&] {
-            const auto pointer = state.module.AllocateId();
-            state.module.AddFunction(spv::OpConvertUToPtr, TypePhysicalU32Pointer(state), pointer, physical);
-            const auto loaded = state.module.AllocateId();
-            state.module.AddFunction(spv::OpLoad, u32, loaded, pointer, spv::MemoryAccessAlignedMask, 4u);
-            return loaded;
-        }, bytes);
-    } else {
-        value = bytes();
-    }
-    state.module.AddFunction(spv::OpReturnValue, value);
+    for (std::uint32_t parameter = 0; parameter < 6u; ++parameter) state.module.AddFunction(spv::OpFunctionParameter, parameter < 5u ? vec4Pointer : u32Pointer, state.module.AllocateId());
     state.module.AddFunction(spv::OpFunctionEnd);
     state.module.EndHelperFunction();
     state.currentLabel = label;
     const auto sampleName = NameWords("sampleGuest");
-    const auto loadName = NameWords("guestLoad32");
     state.module.AddAnnotation(spv::OpDecorate, state.guestSampleFunction, spv::DecorationLinkageAttributes, std::span<const std::uint32_t>(sampleName), spv::LinkageTypeImport);
-    state.module.AddAnnotation(spv::OpDecorate, load, spv::DecorationLinkageAttributes, std::span<const std::uint32_t>(loadName), spv::LinkageTypeExport);
+}
+
+std::vector<std::uint32_t> CompleteEntryInterfaces(const std::vector<std::uint32_t>& module) {
+    if (module.size() < HeaderWords || module[1] < 0x00010400u) return module;
+    std::vector<std::uint32_t> globals;
+    ForEachInstruction(module, [&](std::uint32_t opcode, std::span<const std::uint32_t> words) {
+        if (opcode == spv::OpVariable && words.size() > 3u && words[3] != spv::StorageClassFunction) globals.push_back(words[2]);
+    });
+    std::vector<std::uint32_t> out(module.begin(), module.begin() + HeaderWords);
+    ForEachInstruction(module, [&](std::uint32_t opcode, std::span<const std::uint32_t> words) {
+        if (opcode != spv::OpEntryPoint) {
+            out.insert(out.end(), words.begin(), words.end());
+            return;
+        }
+        std::size_t nameEnd = 3u;
+        while (nameEnd < words.size()) {
+            const auto word = words[nameEnd++];
+            if ((word & 0xffu) == 0u || (word & 0xff00u) == 0u || (word & 0xff0000u) == 0u || (word & 0xff000000u) == 0u) break;
+        }
+        std::vector<std::uint32_t> entry(words.begin() + 1, words.end());
+        for (const auto id : globals) {
+            if (std::find(words.begin() + static_cast<std::ptrdiff_t>(nameEnd), words.end(), id) == words.end()) entry.push_back(id);
+        }
+        out.push_back(static_cast<std::uint32_t>((entry.size() + 1u) << 16u) | spv::OpEntryPoint);
+        out.insert(out.end(), entry.begin(), entry.end());
+    });
+    return out;
 }
 
 }
@@ -182,20 +157,19 @@ void DeclareGuestSampleVariables(SpirvEmitterState& state) {
     if (!ProgramSamplesGuest(state.program)) return;
     for (std::uint32_t index = 0; index < state.guestSampleVariables.size(); ++index) {
         state.guestSampleVariables[index] = state.module.AllocateId();
-        state.module.AddFunction(spv::OpVariable, TypePointer(state, spv::StorageClassFunction, index < 4u ? TypeU32Vector(state, 4) : TypeU32(state)), state.guestSampleVariables[index], spv::StorageClassFunction);
+        state.module.AddFunction(spv::OpVariable, TypePointer(state, spv::StorageClassFunction, index < 5u ? TypeU32Vector(state, 4) : TypeU32(state)), state.guestSampleVariables[index], spv::StorageClassFunction);
     }
 }
 
-std::uint32_t EmitGuestSampleCall(SpirvEmitterState& state, std::uint32_t tlow, std::uint32_t thigh, std::uint32_t sampler, std::uint32_t row, std::uint32_t& fault) {
+std::uint32_t EmitGuestSampleCall(SpirvEmitterState& state, std::uint32_t tlow, std::uint32_t thigh, std::uint32_t sampler, std::uint32_t row, std::uint32_t memory, std::uint32_t& fault) {
     if (state.guestSampleVariables[0] == 0u) throw std::runtime_error("guest sampler: the program declared no guest sample variables");
-    if (state.bdaDwordReadFunctions[0][0] == 0u) throw std::runtime_error("guest sampler: the program has no BDA dword reads");
-    if (state.guestSampleFunction == 0u) DefineGuestSampleFunctions(state);
-    const std::array<std::uint32_t, 4> arguments{tlow, thigh, sampler, row};
+    if (state.guestSampleFunction == 0u) DeclareGuestSampleFunction(state);
+    const std::array<std::uint32_t, 5> arguments{tlow, thigh, sampler, row, memory};
     for (std::uint32_t index = 0; index < arguments.size(); ++index) state.module.AddFunction(spv::OpStore, state.guestSampleVariables[index], arguments[index]);
     const auto result = state.module.AllocateId();
-    state.module.AddFunction(spv::OpFunctionCall, TypeU32Vector(state, 4), result, state.guestSampleFunction, state.guestSampleVariables[0], state.guestSampleVariables[1], state.guestSampleVariables[2], state.guestSampleVariables[3], state.guestSampleVariables[4]);
+    state.module.AddFunction(spv::OpFunctionCall, TypeU32Vector(state, 4), result, state.guestSampleFunction, state.guestSampleVariables[0], state.guestSampleVariables[1], state.guestSampleVariables[2], state.guestSampleVariables[3], state.guestSampleVariables[4], state.guestSampleVariables[5]);
     fault = state.module.AllocateId();
-    state.module.AddFunction(spv::OpLoad, TypeU32(state), fault, state.guestSampleVariables[4]);
+    state.module.AddFunction(spv::OpLoad, TypeU32(state), fault, state.guestSampleVariables[5]);
     return result;
 }
 
@@ -217,7 +191,7 @@ std::vector<std::uint32_t> LinkGuestSampleLibrary(const std::vector<std::uint32_
     options.SetUseHighestVersion(true);
     std::vector<std::uint32_t> linked;
     if (spvtools::Link(context, {module, PrepareLibrary(addressing, memoryModel)}, &linked, options) != SPV_SUCCESS) throw std::runtime_error("guest sampler: linking the library failed: " + messages);
-    return linked;
+    return CompleteEntryInterfaces(linked);
 }
 
 }

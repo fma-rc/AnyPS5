@@ -131,8 +131,10 @@ struct GuestTableElementCounts {
     std::uint64_t bound = 0;
     std::uint64_t promotions = 0;
     std::uint64_t hostKept = 0;
+    std::uint64_t tableRevalidations = 0;
 };
 GuestTableElementCounts GuestTableElements();
+std::uint64_t GuestPromotionGeneration();
 
 struct PresyncSurface {
     std::uint64_t address;
@@ -374,6 +376,11 @@ private:
         struct GuestElement {
             std::uint32_t element;
             std::array<std::uint32_t, 8> words;
+            std::uint64_t address;
+            std::uint64_t bytes;
+            std::uint64_t importBase;
+            std::uint64_t importBytes;
+            std::uint64_t importSerial;
         };
         std::vector<GuestElement> guestElements;
     };
@@ -389,6 +396,10 @@ private:
     void finishImageTables();
     // Promotes the guest-sampled elements the completed use read (ImageTableAbi used words).
     void promoteGuestElements() const;
+    // Whether every guest-sampled element still reads the import it was bound to, holds no pending
+    // results and was not promoted since the build.
+    bool guestElementsCurrent() const;
+    std::uint64_t guestGeneration = 0;
 
     // A host-imported buffer region the set reads in place, with its import's identity at build time.
     struct DirectRegion {

@@ -9,7 +9,7 @@ namespace ShaderRecompiler {
 
 bool ProgramSamplesGuest(const IrProgram& program);
 void DeclareGuestSampleVariables(SpirvEmitterState& state);
-std::uint32_t EmitGuestSampleCall(SpirvEmitterState& state, std::uint32_t tlow, std::uint32_t thigh, std::uint32_t sampler, std::uint32_t row, std::uint32_t& fault);
+std::uint32_t EmitGuestSampleCall(SpirvEmitterState& state, std::uint32_t tlow, std::uint32_t thigh, std::uint32_t sampler, std::uint32_t row, std::uint32_t memory, std::uint32_t& fault);
 std::vector<std::uint32_t> LinkGuestSampleLibrary(const std::vector<std::uint32_t>& module);
 
 }

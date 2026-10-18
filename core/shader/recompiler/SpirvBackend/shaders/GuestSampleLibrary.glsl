@@ -1,13 +1,27 @@
 #version 450
 #extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
 #extension GL_GOOGLE_include_directive : require
+#extension GL_EXT_buffer_reference : require
 
 layout(local_size_x = 1) in;
 
 #include "GuestSampleTables.glsl"
 
+layout(buffer_reference, std430, buffer_reference_align = 4) readonly buffer GuestWord {
+    uint value;
+};
+
+uint64_t guestOrigin = 0ul;
+uint64_t guestDevice = 0ul;
+uint64_t guestBytes = 0ul;
+bool guestOutside = false;
+
 uint guestLoad32(uint64_t address) {
-    return uint(address);
+    if (address < guestOrigin || ((address - guestOrigin) & 3ul) != 0ul || address - guestOrigin >= guestBytes || guestBytes - (address - guestOrigin) < 4ul) {
+        guestOutside = true;
+        return 0u;
+    }
+    return GuestWord(guestDevice + (address - guestOrigin)).value;
 }
 
 const uint FaultCode = 0xfa017fa0u;
@@ -594,13 +608,17 @@ uint selectChannel(uint selector, uvec4 value) {
     return FaultCode;
 }
 
-uvec4 sampleGuest(uvec4 tlow, uvec4 thigh, uvec4 ssharp, uvec4 row, out uint fault) {
+uvec4 sampleGuest(uvec4 tlow, uvec4 thigh, uvec4 ssharp, uvec4 row, uvec4 memory, out uint fault) {
     faulted = false;
+    guestOutside = false;
     fault = 1u;
     uint t1 = tlow.y;
     uint t2 = tlow.z;
     uint t3 = tlow.w;
     uint64_t base = (uint64_t(tlow.x) | (uint64_t(t1 & 0xffu) << 32)) << 8;
+    guestOrigin = base;
+    guestDevice = uint64_t(memory.x) | (uint64_t(memory.y) << 32);
+    guestBytes = uint64_t(memory.z);
     uint format = (t1 >> 20) & 0x1ffu;
     uint width = (((t1 >> 30) & 3u) | ((t2 & 0xfffu) << 2)) + 1u;
     uint height = ((t2 >> 14) & 0x3fffu) + 1u;
@@ -708,7 +726,7 @@ uvec4 sampleGuest(uvec4 tlow, uvec4 thigh, uvec4 ssharp, uvec4 row, out uint fau
         }
     }
     uvec4 selected = uvec4(selectChannel(t3 & 7u, value), selectChannel((t3 >> 3) & 7u, value), selectChannel((t3 >> 6) & 7u, value), selectChannel((t3 >> 9) & 7u, value));
-    if (faulted) return uvec4(0u);
+    if (faulted || guestOutside) return uvec4(0u);
     fault = 0u;
     return selected;
 }

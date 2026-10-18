@@ -1770,8 +1770,9 @@ void EmitGuestSample(SpirvValueEmitContext& ctx, const IrValue& inst, const Imag
         const auto samplers = Binary(state, spv::OpIAdd, u32, LoadTableMap(state, ConstantU32(state, ImageTableAbi::HeaderGuestSamplers)), ConstantU32(state, memory.sampler * ImageTableAbi::GuestSamplerWords));
         const auto row = state.module.AllocateId();
         state.module.AddFunction(spv::OpCompositeConstruct, vec4, row, u, v, lod, ConstantU32(state, 0u));
+        const auto memoryWords = Binary(state, spv::OpIAdd, u32, LoadTableMap(state, ConstantU32(state, ImageTableAbi::HeaderGuestMemory)), Binary(state, spv::OpIMul, u32, access.element, ConstantU32(state, ImageTableAbi::GuestMemoryWords)));
         std::uint32_t fault = 0;
-        const auto sampled = EmitGuestSampleCall(state, quad(element, 0u), quad(element, 4u), quad(samplers, 0u), row, fault);
+        const auto sampled = EmitGuestSampleCall(state, quad(element, 0u), quad(element, 4u), quad(samplers, 0u), row, quad(memoryWords, 0u), fault);
         EmitTableFault(ctx, inst, access.word, LoadTableMap(state, ConstantU32(state, ImageTableAbi::HeaderGuestFault)), Binary(state, spv::OpINotEqual, boolean, fault, ConstantU32(state, 0u)));
         const auto used = Binary(state, spv::OpIAdd, u32, LoadTableMap(state, ConstantU32(state, ImageTableAbi::HeaderGuestUsed)), access.element);
         EmitIfCondition(state, Binary(state, spv::OpIEqual, boolean, LoadTableMap(state, used), ConstantU32(state, 0u)), [&] {

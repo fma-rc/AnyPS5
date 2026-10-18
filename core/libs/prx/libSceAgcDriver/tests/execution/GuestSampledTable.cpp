@@ -155,13 +155,6 @@ std::vector<std::uint32_t> Sample(AgcDriver::VulkanDevice& device, GuestBlock& b
         {0, 0, 0, 128}
     };
     const auto result = ShaderRecompiler::Recompile(request);
-    if (const char* path = std::getenv("GUEST_TABLE_SPIRV"); path != nullptr) {
-        const auto words = result.spirv.Words();
-        if (auto* file = std::fopen(path, "wb")) {
-            std::fwrite(words.data(), sizeof(std::uint32_t), words.size(), file);
-            std::fclose(file);
-        }
-    }
     device.Dispatch(result, groups, 1, 1, {}, reinterpret_cast<std::uintptr_t>(span.data()));
     device.WaitIdle();
     return std::vector<std::uint32_t>(output, output + rows * 4u);
@@ -174,13 +167,6 @@ std::size_t Mismatches(std::span<const std::uint32_t> actual, std::span<const st
         if (count < 4) std::fprintf(stderr, "%s: row %zu word %zu is 0x%08x, expected 0x%08x\n", what.c_str(), index / 4u, index % 4u, actual[index], expected[index]);
         ++count;
     }
-    if (std::getenv("GUEST_TABLE_DEBUG") != nullptr) {
-        std::string rows;
-        for (std::size_t row = 0; row * 4u < expected.size(); ++row) {
-            if (std::equal(expected.begin() + row * 4u, expected.begin() + row * 4u + 4u, actual.begin() + row * 4u)) rows += " " + std::to_string(row);
-        }
-        std::fprintf(stderr, "%s: equal rows%s\n", what.c_str(), rows.substr(0, 600).c_str());
-    }
     return count;
 }
 
@@ -190,6 +176,8 @@ void RunCase(AgcDriver::VulkanDevice& device, GuestBlock& block, const Case& tes
     const auto afterGuest = AgcDriver::Graphics::GuestTableElements();
     const auto host = Sample(device, block, test);
     const auto afterHost = AgcDriver::Graphics::GuestTableElements();
+    const auto reused = Sample(device, block, test);
+    const auto afterReuse = AgcDriver::Graphics::GuestTableElements();
     // The host texture's results are counted, not required: its sampler's filter weights, its texel
     // selection within rounding of a texel edge and lavapipe's BC7 decode differ from the hardware.
     const auto guestOracle = Mismatches(guest, test.expected, std::string(test.name) + " guest");
@@ -200,6 +188,8 @@ void RunCase(AgcDriver::VulkanDevice& device, GuestBlock& block, const Case& tes
         static_cast<unsigned long long>(afterHost.bound - afterGuest.bound), static_cast<unsigned long long>(afterHost.promotions - afterGuest.promotions), guestOracle, hostOracle, guestHost);
     Require(afterGuest.bound == before.bound + 1u && afterGuest.promotions == before.promotions + 1u, std::string(test.name) + ": the first use did not sample the element on the guest and promote it");
     Require(afterHost.bound == afterGuest.bound && afterHost.promotions == afterGuest.promotions, std::string(test.name) + ": the use after the promotion did not take the host texture");
+    Require(afterReuse.bound == afterHost.bound && afterReuse.tableRevalidations > afterHost.tableRevalidations, std::string(test.name) + ": the use after the promoted build did not reuse it");
+    Require(reused == host, std::string(test.name) + ": the reused promoted build disagrees with its first use");
     Require(guestOracle == 0u, std::string(test.name) + ": the guest sampler disagrees with the hardware");
 }
 

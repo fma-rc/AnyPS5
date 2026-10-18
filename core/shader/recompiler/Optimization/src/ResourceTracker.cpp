@@ -1694,7 +1694,6 @@ private:
         for (std::uint32_t resource = 0; resource < m_info.images.size(); ++resource) {
             auto& image = m_info.images[resource];
             image.guestSample = image.table != NoTable && image.tableOperation == TableOperation::Supported && !image.written && !image.atomic && resource < m_guestAccess.size() && m_guestAccess[resource];
-            m_info.usesDma = m_info.usesDma || image.guestSample;
         }
     }
 

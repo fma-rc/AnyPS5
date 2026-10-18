@@ -1253,6 +1253,8 @@ ResolvedImageTables ResourceMaterializer::ResolveImageTables(const ShaderInfo& i
         if (info.samplers[sampler].table == NoTable) out.map.insert(out.map.end(), words.begin(), words.begin() + Abi::GuestSamplerWords);
         else out.map.resize(out.map.size() + Abi::GuestSamplerWords, 0u);
     }
+    out.map[Abi::HeaderGuestMemory] = static_cast<std::uint32_t>(out.map.size());
+    out.map.resize(out.map.size() + out.elements.size() * Abi::GuestMemoryWords, 0u);
     if (anyGuest) {
         const auto resource = static_cast<std::uint32_t>(std::find_if(info.images.begin(), info.images.end(), [](const ImageResource& image) { return image.guestSample; }) - info.images.begin());
         out.map[Abi::HeaderGuestFault] = poison(resource, PoisonReason::GuestSampler, nullptr);

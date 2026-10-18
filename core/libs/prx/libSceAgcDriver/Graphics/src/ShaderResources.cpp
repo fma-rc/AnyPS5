@@ -10,6 +10,7 @@
 #include "prx/libSceAgcDriver/Graphics/include/Pipeline.hpp"
 #include "prx/libSceAgcDriver/Graphics/include/Recorder.hpp"
 #include "prx/libSceAgcDriver/Graphics/include/Draw.hpp"
+#include "prx/libSceAgcDriver/Graphics/include/UnitShadow.hpp"
 #include <algorithm>
 #include <atomic>
 #include <memory>
@@ -2065,6 +2066,7 @@ void ShaderResources::buildComplete() {
         imageRecords.shrink_to_fit();
         nextImageRecord = 0;
         Require(textures.size() == plannedSampledImages && storageTextures.size() == plannedStorageImages, "image lookups disagree with the descriptor plan");
+        guestGeneration = GuestPromotionGeneration();
         resolveImageTables();
         timing.bindingsMs += phase(BuildPhase::Images);
         guestMemory.UploadFinish(usesBda);
@@ -2217,6 +2219,7 @@ void mixDataWords(std::uint64_t& hash, std::span<const std::uint32_t> words) {
 // ResourceCache::Find and Touch calls (the [rescache] line).
 std::atomic<std::uint64_t> resourceCacheFinds{0};
 std::atomic<std::uint64_t> resourceCacheTouches{0};
+std::atomic<std::uint64_t> tableRevalidations{0};
 std::atomic<std::uint64_t> depthGuardRefusals{0};
 
 }
@@ -2978,6 +2981,7 @@ const ShaderRecompiler::DescriptorBinding* ShaderResources::tableImages(std::spa
 bool ShaderResources::Revalidate(std::span<const CompiledShader> shaders, ProofReport* report) {
     if (report != nullptr) *report = {ProofPath::Full, ProofFailure::Other};
     if (!reusable || shaders.empty()) return false;
+    if (!guestElementsCurrent()) return false;
     static const bool profile = std::getenv("APS5_PROFILE_DRAW") != nullptr;
     const auto start = profile ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
     for (const auto& region : directRegions) CompletePendingCpuWrites(context, region.begin, static_cast<std::size_t>(region.end - region.begin));
@@ -2993,6 +2997,7 @@ bool ShaderResources::Revalidate(std::span<const CompiledShader> shaders, ProofR
     static const bool noFast = std::getenv("APS5_NO_FAST_REVALIDATE") != nullptr;
     const auto finish = [&](bool fast, bool ok, ProofFailure failure = ProofFailure::Other) {
         if (profile) countRevalidate(fast, ok, start);
+        if (ok && !tableStages.empty()) tableRevalidations.fetch_add(1, std::memory_order_relaxed);
         if (report != nullptr) report->failure = ok ? ProofFailure::None : failure;
         return ok;
     };
@@ -4377,6 +4382,7 @@ namespace {
 struct GuestTableElements {
     std::mutex mutex;
     std::set<std::array<std::uint32_t, 8>> promoted;
+    std::atomic<std::uint64_t> generation{0};
     std::atomic<std::uint64_t> bound{0};
     std::atomic<std::uint64_t> promotions{0};
     std::atomic<std::uint64_t> hostKept{0};
@@ -4394,14 +4400,14 @@ bool GuestElementPromoted(const std::array<std::uint32_t, 8>& words) {
     return elements.promoted.contains(words);
 }
 
-// The guest sampler reads guest memory through the BDA page table: only a surface served from a
-// host import, with no DCC, pipe-bank swizzle, array, MSAA or border swizzle, and whose bytes no
-// storage image holds pending results for (those keep the view of that image, see cachedTexture).
-bool GuestSampledEligible(const Context& context, const GuestTextureResource& resource, std::uint64_t guestBytes, bool firstLayer) {
+// The guest sampler reads the surface in place through its host import's device address: only a
+// surface inside one import, with no DCC, pipe-bank swizzle, array, MSAA or border swizzle, and whose
+// bytes no storage image or unit shadow holds newer results for (those keep the host path).
+bool GuestSampledEligible(const GuestTextureResource& resource, std::uint64_t guestBytes, bool firstLayer) {
     if (firstLayer || resource.dccAddress != 0 || resource.pipeBankXor != 0 || resource.bcSwizzle != 0 || resource.baseArray != 0 || resource.samples != 1 || resource.dimension != TextureDimension::k2D) return false;
-    if (!HostImportCovers(context, resource.baseAddress, static_cast<std::size_t>(guestBytes))) return false;
+    if (guestBytes == 0 || guestBytes > std::numeric_limits<std::uint32_t>::max()) return false;
     const std::array ranges{std::pair{resource.baseAddress, resource.baseAddress + guestBytes}};
-    return !StorageTexture::AnyPendingOverlaps(ranges);
+    return !StorageTexture::AnyPendingOverlaps(ranges) && !AnyShadowedOverlaps(ranges);
 }
 
 void reportGuestElements() {
@@ -4553,12 +4559,26 @@ void ShaderResources::resolveImageTables() {
                 continue;
             }
             if (guestTable && guestCandidate(element)) {
-                if (GuestSampledEligible(context, resource, guestBytes, firstLayer)) {
+                const HostImport* import = nullptr;
+                std::uint64_t serial = 0;
+                if (GuestSampledEligible(resource, guestBytes, firstLayer)) {
                     CompletePendingCpuWrites(context, resource.baseAddress, static_cast<std::size_t>(guestBytes));
+                    import = HostImportFor(context, resource.baseAddress, static_cast<std::size_t>(guestBytes));
+                    serial = import != nullptr ? HostImportSerial(context, resource.baseAddress, static_cast<std::size_t>(guestBytes), false) : 0;
+                }
+                if (import != nullptr && import->serial == serial) {
+                    Require(usesFaultBuffer, "a guest-sampled image table element needs the shader's fault buffer");
+                    const auto device = import->address + (resource.baseAddress - import->base);
+                    const auto memory = table.map[Abi::HeaderGuestMemory] + static_cast<std::size_t>(element) * Abi::GuestMemoryWords;
+                    table.map[memory] = static_cast<std::uint32_t>(device);
+                    table.map[memory + 1u] = static_cast<std::uint32_t>(device >> 32u);
+                    table.map[memory + 2u] = static_cast<std::uint32_t>(guestBytes);
+                    table.map[memory + 3u] = 0u;
                     table.map[guestState + element] = Abi::GuestStateSampled;
                     std::array<std::uint32_t, 8> key{};
                     std::copy(words.begin(), words.end(), key.begin());
-                    table.guestElements.push_back({element, key});
+                    table.guestElements.push_back({element, key, resource.baseAddress, guestBytes, import->base, import->bytes, serial});
+                    faultChecks = true;
                     GuestElements().bound.fetch_add(1, std::memory_order_relaxed);
                     reusable = false;
                     continue;
@@ -4621,14 +4641,42 @@ void ShaderResources::promoteGuestElements() const {
             std::memcpy(&word, bytes.data() + (used + guest.element) * sizeof(std::uint32_t), sizeof(word));
             if (word == 0u) continue;
             std::lock_guard lock(elements.mutex);
-            if (elements.promoted.insert(guest.words).second) elements.promotions.fetch_add(1, std::memory_order_relaxed);
+            if (!elements.promoted.insert(guest.words).second) continue;
+            elements.promotions.fetch_add(1, std::memory_order_relaxed);
+            elements.generation.fetch_add(1, std::memory_order_release);
         }
     }
 }
 
+bool ShaderResources::guestElementsCurrent() const {
+    auto& elements = GuestElements();
+    const bool promotedSince = elements.generation.load(std::memory_order_acquire) != guestGeneration;
+    std::vector<std::uint64_t> provedImports;
+    for (const auto& table : tableStages) {
+        for (const auto& guest : table.guestElements) {
+            if (promotedSince) {
+                std::lock_guard lock(elements.mutex);
+                if (elements.promoted.contains(guest.words)) return false;
+            }
+            if (std::find(provedImports.begin(), provedImports.end(), guest.importBase) == provedImports.end()) {
+                if (HostImportSerial(context, guest.importBase, static_cast<std::size_t>(guest.importBytes), false) != guest.importSerial) return false;
+                provedImports.push_back(guest.importBase);
+            }
+            CompletePendingCpuWrites(context, guest.address, static_cast<std::size_t>(guest.bytes));
+            const std::array range{std::pair{guest.address, guest.address + guest.bytes}};
+            if (StorageTexture::AnyPendingOverlaps(range) || AnyShadowedOverlaps(range)) return false;
+        }
+    }
+    return true;
+}
+
+std::uint64_t GuestPromotionGeneration() {
+    return GuestElements().generation.load(std::memory_order_acquire);
+}
+
 GuestTableElementCounts GuestTableElements() {
     const auto& elements = GuestElements();
-    return {elements.bound.load(), elements.promotions.load(), elements.hostKept.load()};
+    return {elements.bound.load(), elements.promotions.load(), elements.hostKept.load(), tableRevalidations.load(std::memory_order_relaxed)};
 }
 
 ImageTableReuseCounts ImageTableReuses() {
