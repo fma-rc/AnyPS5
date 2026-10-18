@@ -64,14 +64,20 @@ void ForEachInstruction(std::span<const std::uint32_t> module, TVisit&& visit) {
 std::vector<std::uint32_t> PrepareLibrary(std::uint32_t addressing, std::uint32_t memoryModel) {
     const std::span<const std::uint32_t> library(GUEST_SAMPLE_LIBRARY_SPV, std::size(GUEST_SAMPLE_LIBRARY_SPV));
     std::uint32_t sampleId = 0;
+    std::uint32_t loadId = 0;
     std::uint32_t mainId = 0;
+    std::vector<std::uint32_t> noInline;
+    constexpr std::array<std::string_view, 8> separate{"sampleGuest", "fetchTexel", "decodeBc7Texel", "decodeBc6hTexel", "decodeBc1Texel", "unormFilter", "bc45Filter", "floatFilter"};
     ForEachInstruction(library, [&](std::uint32_t opcode, std::span<const std::uint32_t> words) {
         if (opcode != spv::OpName) return;
         const auto name = LiteralString(words.subspan(2));
+        const auto paren = name.find('(');
+        if (paren != std::string_view::npos && std::find(separate.begin(), separate.end(), name.substr(0, paren)) != separate.end()) noInline.push_back(words[1]);
         if (name.starts_with("sampleGuest(")) sampleId = words[1];
+        else if (name.starts_with("guestLoad32(")) loadId = words[1];
         else if (name == "main") mainId = words[1];
     });
-    if (sampleId == 0u || mainId == 0u) throw std::runtime_error("guest sampler: the library lacks sampleGuest or main");
+    if (sampleId == 0u || loadId == 0u || mainId == 0u) throw std::runtime_error("guest sampler: the library lacks sampleGuest, guestLoad32 or main");
     std::vector<std::uint32_t> out(library.begin(), library.begin() + HeaderWords);
     const std::array<std::uint32_t, 1> linkage{spv::CapabilityLinkage};
     Append(out, spv::OpCapability, {linkage});
@@ -94,6 +100,11 @@ std::vector<std::uint32_t> PrepareLibrary(std::uint32_t addressing, std::uint32_
             return;
         }
         if (opcode == spv::OpFunction) skipping = words[2] == mainId;
+        if (opcode == spv::OpFunction && std::find(noInline.begin(), noInline.end(), words[2]) != noInline.end()) {
+            const std::array<std::uint32_t, 4> function{words[1], words[2], (words[3] & ~static_cast<std::uint32_t>(spv::FunctionControlInlineMask)) | spv::FunctionControlDontInlineMask, words[4]};
+            Append(out, spv::OpFunction, {function});
+            return;
+        }
         if (!skipping) out.insert(out.end(), words.begin(), words.end());
         if (opcode == spv::OpFunctionEnd) skipping = false;
     });
