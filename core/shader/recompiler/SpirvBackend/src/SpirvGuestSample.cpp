@@ -6,6 +6,9 @@
 #include <spirv/unified1/spirv.hpp>
 #include <algorithm>
 #include <array>
+#include <atomic>
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <iterator>
 #include <span>
@@ -72,7 +75,25 @@ std::vector<std::uint32_t> PrepareLibrary(std::uint32_t addressing, std::uint32_
         if (opcode != spv::OpName) return;
         const auto name = LiteralString(words.subspan(2));
         const auto paren = name.find('(');
-        if (paren != std::string_view::npos && std::find(separate.begin(), separate.end(), name.substr(0, paren)) != separate.end()) noInline.push_back(words[1]);
+        if (paren != std::string_view::npos) {
+            const auto function = name.substr(0, paren);
+            bool mark = std::find(separate.begin(), separate.end(), function) != separate.end();
+            if (const char* mode = std::getenv("APS5_X_GUEST_NOINLINE"); mode != nullptr) {
+                const std::string_view text(mode);
+                const auto listed = [&](std::string_view list) {
+                    for (std::size_t at = 0; at <= list.size();) {
+                        const auto end = std::min(list.find(',', at), list.size());
+                        if (list.substr(at, end - at) == function) return true;
+                        at = end + 1u;
+                    }
+                    return false;
+                };
+                if (text == "all") mark = function != "main";
+                else if (text.starts_with("all-but:")) mark = function != "main" && !listed(text.substr(8));
+                else if (text.starts_with("only:")) mark = listed(text.substr(5));
+            }
+            if (mark) noInline.push_back(words[1]);
+        }
         if (name.starts_with("sampleGuest(")) sampleId = words[1];
         else if (name.starts_with("guestLoad32(")) loadId = words[1];
         else if (name == "main") mainId = words[1];
@@ -202,7 +223,16 @@ std::vector<std::uint32_t> LinkGuestSampleLibrary(const std::vector<std::uint32_
     options.SetUseHighestVersion(true);
     std::vector<std::uint32_t> linked;
     if (spvtools::Link(context, {module, PrepareLibrary(addressing, memoryModel)}, &linked, options) != SPV_SUCCESS) throw std::runtime_error("guest sampler: linking the library failed: " + messages);
-    return CompleteEntryInterfaces(linked);
+    auto complete = CompleteEntryInterfaces(linked);
+    if (const char* dir = std::getenv("APS5_X_DUMP_LINKED"); dir != nullptr) {
+        static std::atomic<int> serial{0};
+        const auto path = std::string(dir) + "/linked-" + std::to_string(serial.fetch_add(1)) + ".spv";
+        if (FILE* file = std::fopen(path.c_str(), "wb"); file != nullptr) {
+            std::fwrite(complete.data(), sizeof(std::uint32_t), complete.size(), file);
+            std::fclose(file);
+        }
+    }
+    return complete;
 }
 
 }

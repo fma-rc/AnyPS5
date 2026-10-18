@@ -121,7 +121,13 @@ struct CachedTexture {
     // write watch; zero when none was taken.
     std::array<std::uint64_t, 4> untracked{};
     std::uint64_t surfaceBytes = 0;
+    // Detiled on the GPU from its host import (a promoted image table element): no snapshot bytes; it
+    // stays valid while the write watch shows the surface unchanged since `generation`.
+    bool direct = false;
 };
+
+bool GuestElementPromoted(const std::array<std::uint32_t, 8>& words);
+std::atomic<std::uint64_t> directUploads{0};
 
 // Entries in use order (front = most recent) with a hash index by key: a lookup is O(1) and the
 // eviction takes the back. APS5_NO_TEXTURE_HASH=1 finds entries by scanning the list (the index is
@@ -760,6 +766,14 @@ std::shared_ptr<Texture> cachedTexture(const Context& context, std::span<const s
                 if (profile) LookupOutcomes::Add(*keys != DccKeys::Uncompressed ? LookupOutcomes::SampledHitClearedView : LookupOutcomes::SampledHitView, start);
                 return it->texture;
             }
+        } else if (it->direct) {
+            if (source == nullptr && *keys == DccKeys::Uncompressed && !committed.has_value() && !Recorder::SnapshotWriteOverlaps(address, bytes) && GuestMemory::UnchangedSince(address, bytes, it->generation)) {
+                touchTexture(cache, it);
+                logLookup({it->texture.get(), resource, guestBytes, *keys, generation, nullptr});
+                reportTextureCounters();
+                if (profile) LookupOutcomes::Add(LookupOutcomes::SampledHitSnapshot, start);
+                return it->texture;
+            }
         } else if (source == nullptr && it->surfaceBytes == guestBytes && it->keys == *keys) {
             // Unwritten pages need no comparison; partially resident textures compare only committed
             // pages. The compare goes through the flush hook: it waits for recorded work over the
@@ -811,6 +825,14 @@ std::shared_ptr<Texture> cachedTexture(const Context& context, std::span<const s
         }
         entry.accounted = source->Cached() ? 0u : heldBytes(*source);
         counters.fromStorage.fetch_add(1, std::memory_order_relaxed);
+    } else if (const HostImport* import = depthCompare || *keys != DccKeys::Uncompressed || generation == 0 || entry.committed.has_value() || words.size() < 8u || !IsBlockCompressed(resource.format) || !GuestElementPromoted([&] { std::array<std::uint32_t, 8> key{}; std::copy(words.begin(), words.begin() + 8, key.begin()); return key; }()) || Recorder::SnapshotWriteOverlaps(address, bytes) ? nullptr : HostImportFor(context, address, static_cast<std::size_t>(bytes)); import != nullptr) {
+        entry.bytes.clear();
+        entry.bytes.shrink_to_fit();
+        entry.direct = true;
+        entry.texture = std::make_shared<Texture>(context, *context.detiler, resource, components, import->buffer, address - import->base);
+        entry.accounted = entry.texture->AllocationBytes();
+        counters.snapshots.fetch_add(1, std::memory_order_relaxed);
+        directUploads.fetch_add(1, std::memory_order_relaxed);
     } else {
         // Snapshot before the upload so a write racing with it is caught by the next comparison.
         const bool pending = *keys == DccKeys::Uncompressed && Recorder::SnapshotWriteOverlaps(address, bytes);
@@ -4681,7 +4703,7 @@ std::uint64_t GuestPromotionGeneration() {
 
 GuestTableElementCounts GuestTableElements() {
     const auto& elements = GuestElements();
-    return {elements.bound.load(), elements.promotions.load(), elements.hostKept.load(), tableRevalidations.load(std::memory_order_relaxed)};
+    return {elements.bound.load(), elements.promotions.load(), elements.hostKept.load(), tableRevalidations.load(std::memory_order_relaxed), directUploads.load(std::memory_order_relaxed)};
 }
 
 ImageTableReuseCounts ImageTableReuses() {

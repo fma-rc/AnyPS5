@@ -132,6 +132,7 @@ struct GuestTableElementCounts {
     std::uint64_t promotions = 0;
     std::uint64_t hostKept = 0;
     std::uint64_t tableRevalidations = 0;
+    std::uint64_t directUploads = 0;
 };
 GuestTableElementCounts GuestTableElements();
 std::uint64_t GuestPromotionGeneration();

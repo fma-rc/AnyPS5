@@ -1,6 +1,9 @@
+#include "prx/libSceAgcDriver/Execution/include/GuestMemory.hpp"
 #include "prx/libSceAgcDriver/Execution/include/VulkanDevice.hpp"
 #include "prx/libSceAgcDriver/Graphics/include/ShaderResources.hpp"
 #include "prx/libc/include/GuestAllocations.hpp"
+#include "prx/libc/include/GuestArena.hpp"
+#include "prx/libc/include/GuestWriteWatch.hpp"
 #include "Recompiler.hpp"
 #include "VulkanTestDevice.hpp"
 #include "GuestSampledTableData.hpp"
@@ -9,6 +12,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <string_view>
 #include <cstring>
 #include <iostream>
 #include <span>
@@ -22,6 +26,8 @@
 #define WIN32_LEAN_AND_MEAN
 #endif
 #include <windows.h>
+#else
+#include <sys/mman.h>
 #endif
 
 namespace {
@@ -80,11 +86,22 @@ class GuestBlock {
 public:
     GuestBlock() {
 #ifdef _WIN32
-        block = static_cast<std::uint8_t*>(VirtualAlloc(nullptr, BlockBytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+        block = static_cast<std::uint8_t*>(GuestArena::GuestArenaAllocate_nid_postfix(BlockBytes, 65536));
+        if (block != nullptr) GuestArena::GuestArenaCommit_nid_postfix(block, BlockBytes, PAGE_READWRITE, BlockBytes);
 #else
-        block = static_cast<std::uint8_t*>(std::aligned_alloc(0x10000, BlockBytes));
+        constexpr std::uintptr_t alignment = 65536;
+        void* mapped = mmap(nullptr, BlockBytes + alignment, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+        if (mapped != MAP_FAILED) {
+            const auto begin = reinterpret_cast<std::uintptr_t>(mapped);
+            const auto aligned = (begin + alignment - 1) & ~(alignment - 1);
+            if (aligned != begin) munmap(mapped, aligned - begin);
+            if (aligned + BlockBytes != begin + BlockBytes + alignment) munmap(reinterpret_cast<void*>(aligned + BlockBytes), begin + alignment - aligned);
+            block = reinterpret_cast<std::uint8_t*>(aligned);
+            GuestWriteWatch::GuestWriteWatchRegister_nid_postfix(block, BlockBytes);
+        }
 #endif
         Require(block != nullptr, "guest sampled table: cannot allocate the guest block");
+        Require(AgcDriver::GuestMemory::Watched(reinterpret_cast<std::uintptr_t>(block), BlockBytes), "guest sampled table: the guest block is not write-watched");
         std::memset(block, 0, BlockBytes);
         GuestAllocations::Mutation().Add(block, BlockBytes, true, true, true);
     }
@@ -92,9 +109,11 @@ public:
     ~GuestBlock() {
         GuestAllocations::Mutation().Remove(block);
 #ifdef _WIN32
-        VirtualFree(block, 0, MEM_RELEASE);
+        GuestArena::GuestArenaReset_nid_postfix(block, BlockBytes);
+        GuestArena::GuestArenaRelease_nid_postfix(block, BlockBytes);
 #else
-        std::free(block);
+        munmap(block, BlockBytes);
+        GuestWriteWatch::GuestWriteWatchUnregister_nid_postfix(block, BlockBytes);
 #endif
     }
 
@@ -171,6 +190,7 @@ std::size_t Mismatches(std::span<const std::uint32_t> actual, std::span<const st
 }
 
 void RunCase(AgcDriver::VulkanDevice& device, GuestBlock& block, const Case& test) {
+    AgcDriver::GuestMemory::BumpCollectEpoch();
     const auto before = AgcDriver::Graphics::GuestTableElements();
     const auto guest = Sample(device, block, test);
     const auto afterGuest = AgcDriver::Graphics::GuestTableElements();
@@ -188,6 +208,10 @@ void RunCase(AgcDriver::VulkanDevice& device, GuestBlock& block, const Case& tes
         static_cast<unsigned long long>(afterHost.bound - afterGuest.bound), static_cast<unsigned long long>(afterHost.promotions - afterGuest.promotions), guestOracle, hostOracle, guestHost);
     Require(afterGuest.bound == before.bound + 1u && afterGuest.promotions == before.promotions + 1u, std::string(test.name) + ": the first use did not sample the element on the guest and promote it");
     Require(afterHost.bound == afterGuest.bound && afterHost.promotions == afterGuest.promotions, std::string(test.name) + ": the use after the promotion did not take the host texture");
+    const bool compressed = std::string_view(test.name).starts_with("bc7");
+    const bool watched = AgcDriver::GuestMemory::Watched(reinterpret_cast<std::uintptr_t>(block.At<std::uint8_t>(0)), BlockBytes);
+    std::printf("%-16s surface write-watched after its import: %s, promoted copy detiled from the import: %s\n", test.name, watched ? "yes" : "no", afterHost.directUploads > afterGuest.directUploads ? "yes" : "no");
+    Require(afterHost.directUploads == afterGuest.directUploads + (compressed && watched ? 1u : 0u), std::string(test.name) + ": the promoted BC element of a write-watched surface was not detiled from its import on the GPU");
     Require(afterReuse.bound == afterHost.bound && afterReuse.tableRevalidations > afterHost.tableRevalidations, std::string(test.name) + ": the use after the promoted build did not reuse it");
     Require(reused == host, std::string(test.name) + ": the reused promoted build disagrees with its first use");
     Require(guestOracle == 0u, std::string(test.name) + ": the guest sampler disagrees with the hardware");
