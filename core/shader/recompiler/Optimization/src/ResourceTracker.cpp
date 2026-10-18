@@ -1685,16 +1685,16 @@ private:
         }
         AddMemoryPatch(flags.index, resource, sampler, imageInfo.needsSampler);
         const auto sampleFlags = memory.imageSampleFlags;
-        const bool lodOnly = (sampleFlags & ~(RdnaImageSampleFlagLod | RdnaImageSampleFlagLevelZero)) == 0u && (sampleFlags != 0u || m_program.Resources().stage != IrShaderStage::Pixel);
+        const bool lodOnly = (sampleFlags & ~(RdnaImageSampleFlagLod | RdnaImageSampleFlagLevelZero)) == 0u && sampleFlags != 0u;
         const bool derivative2D = sampleFlags == (RdnaImageSampleFlagDerivative | (2u << RdnaImageSampleGradientCountShift));
-        const bool guestAccess = op == IrOpcode::ImageSampleRaw && fixedSampler && (lodOnly || derivative2D) && memory.imageDimension == RdnaImageDimension::Dim2D && memory.dataBits == 32u && !memory.imagePacked;
+        const bool implicitQuad = (m_program.Resources().stage == IrShaderStage::Pixel || m_program.Resources().stage == IrShaderStage::Compute) && (sampleFlags & ~(RdnaImageSampleFlagBias | RdnaImageSampleFlagAdjust)) == 0u;
+        const bool guestAccess = op == IrOpcode::ImageSampleRaw && fixedSampler && (lodOnly || derivative2D || implicitQuad) && memory.imageDimension == RdnaImageDimension::Dim2D && memory.dataBits == 32u && !memory.imagePacked;
         if (m_guestAccess.size() <= resource) m_guestAccess.resize(resource + 1u, true);
         m_guestAccess[resource] = m_guestAccess[resource] && guestAccess;
         std::uint32_t why = 0u;
         if (op != IrOpcode::ImageSampleRaw) why = 1u;
         else if (!fixedSampler) why = 2u;
-        else if (sampleFlags == 0u && !lodOnly) why = 3u;
-        else if (!lodOnly && !derivative2D) why = 8u;
+        else if (!lodOnly && !derivative2D && !implicitQuad) why = 8u;
         else if (memory.imageDimension != RdnaImageDimension::Dim2D) why = 4u;
         else if (memory.dataBits != 32u || memory.imagePacked) why = 5u;
         if (m_guestWhy.size() <= resource) m_guestWhy.resize(resource + 1u, 0u);

@@ -6,6 +6,8 @@
 #include "SpirvBackend/SpirvEmitterInstructions.hpp"
 #include "SpirvBackend/SpirvGuestSample.hpp"
 #include "SpirvBackend/SpirvMemory/SpirvDescriptors.hpp"
+#include "SpirvBackend/SpirvMemory/SpirvSubgroup.hpp"
+#include "SpirvBackend/SpirvEmitterHelpers.hpp"
 #include "RdnaDecoder/RdnaDescriptorFormat.hpp"
 #include "RdnaDecoder/RdnaImageOpDecoder.hpp"
 #include "ImageTableAbi.hpp"
@@ -1761,13 +1763,34 @@ void EmitGuestSample(SpirvValueEmitContext& ctx, const IrValue& inst, const Imag
     const auto lod = HasFlag(memory, RdnaImageSampleFlagLod) ? AddressU32(ctx, emitAccess, layout.lod) : ConstantU32(state, 0u);
     const bool derivative = HasFlag(memory, RdnaImageSampleFlagDerivative);
     if (derivative && (layout.gradX == NoImageComponent || layout.gradY == NoImageComponent || memory.imageAddressComponents < layout.gradY + 2u)) ctx.Fail(inst, "has an image address with too few gradient components");
+    const bool implicit = (memory.imageSampleFlags & ~(RdnaImageSampleFlagBias | RdnaImageSampleFlagAdjust)) == 0u;
+    const bool bias = HasFlag(memory, RdnaImageSampleFlagBias);
+    if (bias && (!implicit || layout.bias == NoImageComponent)) ctx.Fail(inst, "has a guest sample bias without implicit derivatives");
     std::uint32_t derivatives = 0;
     if (derivative) {
         derivatives = state.module.AllocateId();
         state.module.AddFunction(spv::OpCompositeConstruct, vec4, derivatives, AddressU32(ctx, emitAccess, layout.gradX), AddressU32(ctx, emitAccess, layout.gradX + 1u), AddressU32(ctx, emitAccess, layout.gradY), AddressU32(ctx, emitAccess, layout.gradY + 1u));
+    } else if (implicit) {
+        if ((StageOf(state) != IrShaderStage::Pixel && StageOf(state) != IrShaderStage::Compute) || HostSubgroupSingleLane(state) || state.hostSubgroupSize % 4u != 0u) ctx.Fail(inst, "has implicit guest sample derivatives outside a pixel or compute shader with quads of host invocations");
+        if (std::ranges::find(state.supportedCapabilities, spv::CapabilityGroupNonUniformQuad) == state.supportedCapabilities.end()) ctx.Fail(inst, "has implicit guest sample derivatives but the device lacks quad subgroup operations");
+        state.module.EmitCapability(spv::CapabilityGroupNonUniform);
+        state.module.EmitCapability(spv::CapabilityGroupNonUniformQuad);
+        const auto f32 = TypeF32(state);
+        const auto lane = [&](std::uint32_t value, std::uint32_t index) {
+            const auto broadcast = state.module.AllocateId();
+            state.module.AddFunction(spv::OpGroupNonUniformQuadBroadcast, u32, broadcast, ConstantU32(state, spv::ScopeSubgroup), value, ConstantU32(state, index));
+            return Unary(state, spv::OpBitcast, f32, broadcast);
+        };
+        const auto difference = [&](std::uint32_t value, std::uint32_t index) {
+            return Unary(state, spv::OpBitcast, u32, Binary(state, spv::OpFSub, f32, lane(value, index), lane(value, 0u)));
+        };
+        derivatives = state.module.AllocateId();
+        state.module.AddFunction(spv::OpCompositeConstruct, vec4, derivatives, difference(u, 1u), difference(v, 1u), difference(u, 2u), difference(v, 2u));
     } else {
         derivatives = ConstantU32CompositeZero(state, 4u);
     }
+    const auto rowLod = bias ? AddressU32(ctx, emitAccess, layout.bias) : lod;
+    const auto rowMode = derivative ? 1u : implicit ? (bias ? 2u : 1u) : 0u;
     const auto quad = [&](std::uint32_t base, std::uint32_t first) {
         const auto value = state.module.AllocateId();
         state.module.AddFunction(spv::OpCompositeConstruct, vec4, value, TableMapAt(state, base, first), TableMapAt(state, base, first + 1u), TableMapAt(state, base, first + 2u), TableMapAt(state, base, first + 3u));
@@ -1778,7 +1801,7 @@ void EmitGuestSample(SpirvValueEmitContext& ctx, const IrValue& inst, const Imag
         const auto element = Binary(state, spv::OpIAdd, u32, LoadTableMap(state, ConstantU32(state, ImageTableAbi::HeaderGuestElements)), Binary(state, spv::OpIMul, u32, access.element, ConstantU32(state, ImageTableAbi::GuestElementWords)));
         const auto samplers = Binary(state, spv::OpIAdd, u32, LoadTableMap(state, ConstantU32(state, ImageTableAbi::HeaderGuestSamplers)), ConstantU32(state, memory.sampler * ImageTableAbi::GuestSamplerWords));
         const auto row = state.module.AllocateId();
-        state.module.AddFunction(spv::OpCompositeConstruct, vec4, row, u, v, lod, ConstantU32(state, derivative ? 1u : 0u));
+        state.module.AddFunction(spv::OpCompositeConstruct, vec4, row, u, v, rowLod, ConstantU32(state, rowMode));
         const auto memoryWords = Binary(state, spv::OpIAdd, u32, LoadTableMap(state, ConstantU32(state, ImageTableAbi::HeaderGuestMemory)), Binary(state, spv::OpIMul, u32, access.element, ConstantU32(state, ImageTableAbi::GuestMemoryWords)));
         std::uint32_t fault = 0;
         const auto sampled = EmitGuestSampleCall(state, quad(element, 0u), quad(element, 4u), quad(samplers, 0u), row, derivatives, quad(memoryWords, 0u), fault);

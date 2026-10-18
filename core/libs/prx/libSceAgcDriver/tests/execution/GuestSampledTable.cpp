@@ -8,6 +8,7 @@
 #include "VulkanTestDevice.hpp"
 #include "GuestSampledTableData.hpp"
 #include "GuestSampledTableDerivativeData.hpp"
+#include "GuestSampledTableImplicitData.hpp"
 #include <algorithm>
 #include <array>
 #include <cstdint>
@@ -39,7 +40,7 @@ using ShaderRecompiler::ShaderStage;
 constexpr std::uint32_t Lanes = 64;
 constexpr std::uint32_t MaxGroups = 64;
 constexpr std::uint32_t Stride = 48;
-constexpr std::size_t BlockBytes = 0x80000;
+constexpr std::size_t BlockBytes = 0x90000;
 constexpr std::size_t Rgba8Offset = 0x00000;
 constexpr std::size_t Bc7Offset = 0x10000;
 constexpr std::size_t Bc7MipOffset = 0x20000;
@@ -48,7 +49,9 @@ constexpr std::size_t Rgba8CopyOffset = 0x60000;
 constexpr std::size_t R16Offset = 0x70000;
 constexpr std::size_t R32fOffset = 0x72000;
 constexpr std::size_t Bc7DerivativeOffset = 0x78000;
-constexpr std::uint32_t Records = 8;
+constexpr std::size_t Bc7ImplicitOffset = 0x80000;
+constexpr std::size_t Bc7BiasOffset = 0x85000;
+constexpr std::uint32_t Records = 10;
 constexpr std::size_t SrtOffset = 0x30000;
 constexpr std::size_t TableOffset = 0x30100;
 constexpr std::size_t KeysOffset = 0x30400;
@@ -62,6 +65,22 @@ alignas(256) constexpr std::array<std::uint32_t, 29> SampleCode{
     0xf4080100u, 0xfa000000u, 0xf4080200u, 0xfa000010u, 0xf4080700u, 0xfa000020u, 0xf4080800u, 0xfa000030u,
     0xf4080500u, 0xfa000040u, 0x8f108202u, 0xf4200444u, 0x20000000u, 0x9312b011u, 0xf42c0902u, 0x24000010u,
     0x7e120202u, 0x34101286u, 0x4a101100u, 0x34101084u, 0xe0381000u, 0x80050a08u, 0xbf8c3f70u, 0xf0900f08u,
+    0x0109040au, 0xbf8c3f70u, 0xe0781000u, 0x80070408u, 0xbf810000u,
+};
+
+// As SampleCode, but with image_sample (derivatives from each quad of lanes; rows: u, v).
+alignas(256) constexpr std::array<std::uint32_t, 29> SampleImplicitCode{
+    0xf4080100u, 0xfa000000u, 0xf4080200u, 0xfa000010u, 0xf4080700u, 0xfa000020u, 0xf4080800u, 0xfa000030u,
+    0xf4080500u, 0xfa000040u, 0x8f108202u, 0xf4200444u, 0x20000000u, 0x9312b011u, 0xf42c0902u, 0x24000010u,
+    0x7e120202u, 0x34101286u, 0x4a101100u, 0x34101084u, 0xe0381000u, 0x80050a08u, 0xbf8c3f70u, 0xf0800f08u,
+    0x0109040au, 0xbf8c3f70u, 0xe0781000u, 0x80070408u, 0xbf810000u,
+};
+
+// As SampleImplicitCode, but with image_sample_b (rows: bias, u, v).
+alignas(256) constexpr std::array<std::uint32_t, 29> SampleBiasCode{
+    0xf4080100u, 0xfa000000u, 0xf4080200u, 0xfa000010u, 0xf4080700u, 0xfa000020u, 0xf4080800u, 0xfa000030u,
+    0xf4080500u, 0xfa000040u, 0x8f108202u, 0xf4200444u, 0x20000000u, 0x9312b011u, 0xf42c0902u, 0x24000010u,
+    0x7e120202u, 0x34101286u, 0x4a101100u, 0x34101084u, 0xe0381000u, 0x80050a08u, 0xbf8c3f70u, 0xf0940f08u,
     0x0109040au, 0xbf8c3f70u, 0xe0781000u, 0x80070408u, 0xbf810000u,
 };
 
@@ -148,6 +167,7 @@ struct Case {
     std::span<const std::uint32_t> rows;
     std::span<const std::uint32_t> expected;
     std::uint32_t rowWords = 4;
+    std::span<const std::uint32_t> code = SampleCode;
 };
 
 std::vector<std::uint32_t> Sample(AgcDriver::VulkanDevice& device, GuestBlock& block, const Case& test) {
@@ -172,7 +192,7 @@ std::vector<std::uint32_t> Sample(AgcDriver::VulkanDevice& device, GuestBlock& b
     std::fill(rowWords, rowWords + RowsBytes / sizeof(std::uint32_t), 0u);
     std::copy(test.rows.begin(), test.rows.end(), rowWords);
     std::fill(output, output + MaxGroups * Lanes * 4u, 0xdeadbeefu);
-    const std::span<const std::uint32_t> span = test.rowWords == 8u ? std::span<const std::uint32_t>(SampleDerivativeCode) : std::span<const std::uint32_t>(SampleCode);
+    const std::span<const std::uint32_t> span = test.rowWords == 8u ? std::span<const std::uint32_t>(SampleDerivativeCode) : test.code;
     const std::array<ShaderRecompiler::MemoryRegion, 4> memory{{
         {reinterpret_cast<std::uintptr_t>(span.data()), std::as_bytes(span)},
         {reinterpret_cast<std::uintptr_t>(srt), std::as_bytes(std::span(srt, 32))},
@@ -244,6 +264,8 @@ void RunTests(AgcDriver::VulkanDevice& device) {
     std::memcpy(block.At<std::uint8_t>(Bc7CopyOffset), GuestSampledTableData::Bc7Memory.data(), sizeof(GuestSampledTableData::Bc7Memory));
     std::memcpy(block.At<std::uint8_t>(Bc7MipOffset), GuestSampledTableData::Bc7MipMemory.data(), sizeof(GuestSampledTableData::Bc7MipMemory));
     std::memcpy(block.At<std::uint8_t>(Bc7DerivativeOffset), GuestSampledTableData::Bc7MipMemory.data(), sizeof(GuestSampledTableData::Bc7MipMemory));
+    std::memcpy(block.At<std::uint8_t>(Bc7ImplicitOffset), GuestSampledTableData::Bc7MipMemory.data(), sizeof(GuestSampledTableData::Bc7MipMemory));
+    std::memcpy(block.At<std::uint8_t>(Bc7BiasOffset), GuestSampledTableData::Bc7MipMemory.data(), sizeof(GuestSampledTableData::Bc7MipMemory));
     std::memcpy(block.At<std::uint8_t>(R16Offset), GuestSampledTableDerivativeData::R16Memory.data(), sizeof(GuestSampledTableDerivativeData::R16Memory));
     std::memcpy(block.At<std::uint8_t>(R32fOffset), GuestSampledTableDerivativeData::R32fMemory.data(), sizeof(GuestSampledTableDerivativeData::R32fMemory));
     constexpr std::uint32_t formatRgba8 = 56;
@@ -262,6 +284,8 @@ void RunTests(AgcDriver::VulkanDevice& device) {
         TextureWords(block.At<std::uint8_t>(R16Offset), formatR16, 64, 64, swizzle256BS, 0),
         TextureWords(block.At<std::uint8_t>(R32fOffset), formatR32f, 64, 64, swizzle256BS, 0),
         TextureWords(block.At<std::uint8_t>(Bc7DerivativeOffset), formatBc7, 128, 64, swizzle4KbS, 5),
+        TextureWords(block.At<std::uint8_t>(Bc7ImplicitOffset), formatBc7, 128, 64, swizzle4KbS, 5),
+        TextureWords(block.At<std::uint8_t>(Bc7BiasOffset), formatBc7, 128, 64, swizzle4KbS, 5),
     };
     auto* table = block.At<std::uint32_t>(TableOffset);
     for (std::size_t record = 0; record < records.size(); ++record) std::copy(records[record].begin(), records[record].end(), table + record * (Stride / 4u) + 4u);
@@ -271,6 +295,8 @@ void RunTests(AgcDriver::VulkanDevice& device) {
     RunCase(device, block, {"r16/bilinear", 5, Sampler(1, 1, 0), GuestSampledTableDerivativeData::SingleChannelRows, GuestSampledTableDerivativeData::R16Bilinear});
     RunCase(device, block, {"r32f/bilinear", 6, Sampler(1, 1, 0), GuestSampledTableDerivativeData::SingleChannelRows, GuestSampledTableDerivativeData::R32fBilinear});
     RunCase(device, block, {"bc7-derivative", 7, Sampler(1, 1, 2), GuestSampledTableDerivativeData::Bc7DerivativeRows, GuestSampledTableDerivativeData::Bc7DerivativeTrilinear, 8});
+    RunCase(device, block, {"bc7-implicit", 8, Sampler(1, 1, 2), GuestSampledTableImplicitData::Bc7ImplicitRows, GuestSampledTableImplicitData::Bc7ImplicitTrilinear, 4, SampleImplicitCode});
+    RunCase(device, block, {"bc7-bias", 9, Sampler(1, 1, 2), GuestSampledTableImplicitData::Bc7BiasRows, GuestSampledTableImplicitData::Bc7BiasTrilinear, 4, SampleBiasCode});
     RunCase(device, block, {"bc7/point", 1, Sampler(0, 0, 0), Bc7PointRows, Bc7Point});
     RunCase(device, block, {"bc7-mips/point", 2, Sampler(0, 0, 1), Bc7MipRows, Bc7MipPoint});
     RunCase(device, block, {"rgba8/point", 3, Sampler(0, 0, 0), Rgba8Rows, Rgba8Point});

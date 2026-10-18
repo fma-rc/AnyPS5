@@ -744,7 +744,7 @@ uint polygonLength(int x, int y) {
     return uint(best);
 }
 
-uint derivativeLod(uvec4 derivatives, uint width, uint height, uint lastLevel) {
+uint derivativeLod(uvec4 derivatives, uint width, uint height, uint lastLevel, int bias) {
     uint mantissas[4];
     int exponents[4];
     bool present[4];
@@ -784,7 +784,7 @@ uint derivativeLod(uvec4 derivatives, uint width, uint height, uint lastLevel) {
         faulted = true;
         return 0u;
     }
-    return uint(clamp(256 * scale + int(entry), 0, int(lastLevel) * 256));
+    return uint(clamp(256 * scale + int(entry) + bias, 0, int(lastLevel) * 256));
 }
 
 uvec4 sampleGuest(uvec4 tlow, uvec4 thigh, uvec4 ssharp, uvec4 row, uvec4 derivatives, uvec4 memory, out uint fault) {
@@ -823,11 +823,18 @@ uvec4 sampleGuest(uvec4 tlow, uvec4 thigh, uvec4 ssharp, uvec4 row, uvec4 deriva
     if (!supported) {
         return uvec4(0u);
     }
-    bool derivativeRows = row.w == 1u && lastLevel != 0u;
-    if (row.w > 1u) return uvec4(0u);
+    if (row.w > 2u) return uvec4(0u);
+    int bias = 0;
+    if (row.w == 2u) {
+        float value = uintBitsToFloat(row.z);
+        if (isnan(value) || abs(value) >= 16.0) return uvec4(0u);
+        bias = int(roundEven(value * 256.0));
+    }
     uint quantizedLod;
-    if (derivativeRows) {
-        quantizedLod = derivativeLod(derivatives, width, height, lastLevel);
+    if (row.w != 0u && lastLevel == 0u) {
+        quantizedLod = 0u;
+    } else if (row.w != 0u) {
+        quantizedLod = derivativeLod(derivatives, width, height, lastLevel, bias);
         if (faulted) {
             return uvec4(0u);
         }
