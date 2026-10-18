@@ -48,25 +48,25 @@ uint standardOffset8(uint x, uint y) {
     return ((x & 1u) << 3) | ((y & 3u) << 4) | ((x & 6u) << 5) | ((y & 4u) << 6) | ((x & 8u) << 6) | ((y & 8u) << 7) | ((x & 16u) << 7) | ((y & 16u) << 8) | ((x & 32u) << 8) | ((y & 32u) << 9) | ((x & 64u) << 9);
 }
 
-int64_t roundHalfEvenShift(int64_t value, uint shift) {
-    if (shift == 0u) return value;
-    if (shift >= 63u) return int64_t(0);
+ivec2 roundHalfEvenShift(int64_t value, uint shift) {
+    if (shift == 0u) return unpackInt2x32(value);
+    if (shift >= 63u) return unpackInt2x32(int64_t(0));
     bool negative = value < int64_t(0);
     uint64_t magnitude = uint64_t(negative ? -value : value);
     uint64_t quotient = magnitude >> shift;
     uint64_t remainder = magnitude & ((uint64_t(1) << shift) - uint64_t(1));
     uint64_t midpoint = uint64_t(1) << (shift - 1u);
     if (remainder > midpoint || (remainder == midpoint && (quotient & uint64_t(1)) != uint64_t(0))) quotient += uint64_t(1);
-    return negative ? -int64_t(quotient) : int64_t(quotient);
+    return unpackInt2x32(negative ? -int64_t(quotient) : int64_t(quotient));
 }
 
-uint64_t roundHalfEvenShiftUnsigned(uint64_t value, int shift) {
-    if (shift <= 0) return value << uint(-shift);
+uvec2 roundHalfEvenShiftUnsigned(uint64_t value, int shift) {
+    if (shift <= 0) return unpackUint2x32(value << uint(-shift));
     uint64_t quotient = value >> uint(shift);
     uint64_t remainder = value & ((uint64_t(1) << uint(shift)) - uint64_t(1));
     uint64_t midpoint = uint64_t(1) << uint(shift - 1);
     if (remainder > midpoint || (remainder == midpoint && (quotient & uint64_t(1)) != uint64_t(0))) quotient += uint64_t(1);
-    return quotient;
+    return unpackUint2x32(quotient);
 }
 
 int msb64(uint64_t value) {
@@ -74,13 +74,13 @@ int msb64(uint64_t value) {
     return high != 0u ? 32 + findMSB(high) : findMSB(uint(value));
 }
 
-int64_t fixedTexelCoordinate(uint bits, uint size) {
+ivec2 fixedTexelCoordinate(uint bits, uint size) {
     uint exponent = (bits >> 23) & 0xffu;
-    if (exponent == 0u) return int64_t(0);
+    if (exponent == 0u) return unpackInt2x32(int64_t(0));
     int64_t mantissa = int64_t((bits & 0x7fffffu) | 0x800000u) * int64_t(size);
     if ((bits & 0x80000000u) != 0u) mantissa = -mantissa;
     int shift = 142 - int(exponent);
-    if (shift <= 0) return mantissa << uint(-shift);
+    if (shift <= 0) return unpackInt2x32(mantissa << uint(-shift));
     return roundHalfEvenShift(mantissa, uint(shift));
 }
 
@@ -497,8 +497,8 @@ uint unormFilteredToFloat(uint filtered) {
 uint unormFilter(uint texels[8], uint tapWeights[8], uint tapLevels[8], uint tapCount, uint levelWeights[2]) {
     uint64_t levelSums[2] = uint64_t[](uint64_t(0), uint64_t(0));
     for (uint i = 0u; i < tapCount; ++i) levelSums[tapLevels[i]] += uint64_t(texels[i] * tapWeights[i]);
-    uint64_t blended = roundHalfEvenShiftUnsigned(levelSums[0] * uint64_t(levelWeights[0]), 5) + roundHalfEvenShiftUnsigned(levelSums[1] * uint64_t(levelWeights[1]), 5);
-    return unormFilteredToFloat(uint(roundHalfEvenShiftUnsigned(blended, 6)));
+    uint64_t blended = packUint2x32(roundHalfEvenShiftUnsigned(levelSums[0] * uint64_t(levelWeights[0]), 5)) + packUint2x32(roundHalfEvenShiftUnsigned(levelSums[1] * uint64_t(levelWeights[1]), 5));
+    return unormFilteredToFloat(uint(packUint2x32(roundHalfEvenShiftUnsigned(blended, 6))));
 }
 
 uint bc45Filter(uint texels[8], uint tapWeights[8], uint tapLevels[8], uint tapCount, uint levelWeights[2]) {
@@ -519,10 +519,10 @@ bool wideAnyBelow(uint64_t high, uint64_t low, int index) {
     return (low & ((uint64_t(1) << uint(index)) - uint64_t(1))) != uint64_t(0);
 }
 
-uint64_t wideShiftRight(uint64_t high, uint64_t low, int shift) {
-    if (shift <= 0) return low << uint(-shift);
-    if (shift >= 64) return high >> uint(shift - 64);
-    return (low >> uint(shift)) | (high << uint(64 - shift));
+uvec2 wideShiftRight(uint64_t high, uint64_t low, int shift) {
+    if (shift <= 0) return unpackUint2x32(low << uint(-shift));
+    if (shift >= 64) return unpackUint2x32(high >> uint(shift - 64));
+    return unpackUint2x32((low >> uint(shift)) | (high << uint(64 - shift)));
 }
 
 uint floatFilter(uint values[8], uint weights[8], uint tapLevels[8], uint tapCount) {
@@ -580,9 +580,9 @@ uint floatFilter(uint values[8], uint weights[8], uint tapLevels[8], uint tapCou
     }
     int top = high != uint64_t(0) ? 64 + msb64(high) : msb64(low);
     int firstShift = top - 28;
-    uint64_t wide = wideShiftRight(high, low, firstShift);
+    uint64_t wide = packUint2x32(wideShiftRight(high, low, firstShift));
     if (firstShift > 0 && wideBit(high, low, firstShift - 1) != 0u && (wideAnyBelow(high, low, firstShift - 1) || (wide & uint64_t(1)) != uint64_t(0))) wide += uint64_t(1);
-    uint64_t mantissa = roundHalfEvenShiftUnsigned(wide, 5);
+    uint64_t mantissa = packUint2x32(roundHalfEvenShiftUnsigned(wide, 5));
     int exponent = top + lowest - 44;
     if (mantissa >= (uint64_t(1) << 24)) {
         mantissa >>= 1;
@@ -666,8 +666,8 @@ uvec4 sampleGuest(uvec4 tlow, uvec4 thigh, uvec4 ssharp, uvec4 row, uvec4 memory
     uint tapCount = 0u;
     for (uint slot = 0u; slot < levelSlots; ++slot) {
         Level level = levelLayout(width, height, lastLevel + 1u, swizzle, bytesPerElementOf(format), firstLevel + slot);
-        int64_t fx = fixedTexelCoordinate(row.x, level.width);
-        int64_t fy = fixedTexelCoordinate(row.y, level.height);
+        int64_t fx = packInt2x32(fixedTexelCoordinate(row.x, level.width));
+        int64_t fy = packInt2x32(fixedTexelCoordinate(row.y, level.height));
         if (magFilter == 0u) {
             int x = wrapIndex(int(fx >> 8), int(level.width), clampX);
             int y = wrapIndex(int(fy >> 8), int(level.height), clampY);

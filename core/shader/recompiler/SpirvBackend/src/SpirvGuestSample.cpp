@@ -99,6 +99,12 @@ std::vector<std::uint32_t> PrepareLibrary(std::uint32_t addressing, std::uint32_
         else if (name == "main") mainId = words[1];
     });
     if (sampleId == 0u || loadId == 0u || mainId == 0u) throw std::runtime_error("guest sampler: the library lacks sampleGuest, guestLoad32 or main");
+    std::vector<std::uint32_t> wideTypes;
+    ForEachInstruction(library, [&](std::uint32_t opcode, std::span<const std::uint32_t> words) {
+        if (opcode == spv::OpTypeInt && words[2] == 64u) wideTypes.push_back(words[1]);
+        if (opcode == spv::OpTypeVector && std::find(wideTypes.begin(), wideTypes.end(), words[2]) != wideTypes.end()) wideTypes.push_back(words[1]);
+        if (opcode == spv::OpFunction && std::find(wideTypes.begin(), wideTypes.end(), words[1]) != wideTypes.end()) throw std::runtime_error("guest sampler: a library function returns a 64-bit integer, which NVIDIA miscompiles in an out-of-line call");
+    });
     std::vector<std::uint32_t> out(library.begin(), library.begin() + HeaderWords);
     const std::array<std::uint32_t, 1> linkage{spv::CapabilityLinkage};
     Append(out, spv::OpCapability, {linkage});
