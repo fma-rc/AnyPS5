@@ -21,6 +21,7 @@
 #include <vector>
 
 namespace ShaderRecompiler {
+void GuestCensusNote(std::uint32_t kind, std::uint32_t reason, std::uint32_t format);
 namespace {
 
 constexpr std::uint32_t samplerBorderClampMask = (1u << 2u) | (1u << 5u) | (1u << 8u);
@@ -1688,12 +1689,28 @@ private:
         const bool guestAccess = op == IrOpcode::ImageSampleRaw && fixedSampler && lodOnly && memory.imageDimension == RdnaImageDimension::Dim2D && memory.dataBits == 32u && !memory.imagePacked;
         if (m_guestAccess.size() <= resource) m_guestAccess.resize(resource + 1u, true);
         m_guestAccess[resource] = m_guestAccess[resource] && guestAccess;
+        std::uint32_t why = 0u;
+        if (op != IrOpcode::ImageSampleRaw) why = 1u;
+        else if (!fixedSampler) why = 2u;
+        else if (sampleFlags == 0u && !lodOnly) why = 3u;
+        else if (!lodOnly) why = 8u;
+        else if (memory.imageDimension != RdnaImageDimension::Dim2D) why = 4u;
+        else if (memory.dataBits != 32u || memory.imagePacked) why = 5u;
+        if (m_guestWhy.size() <= resource) m_guestWhy.resize(resource + 1u, 0u);
+        if (m_guestWhy[resource] == 0u) m_guestWhy[resource] = why;
+        if (why == 8u) m_guestFlags |= sampleFlags;
     }
 
     void AssignGuestSampling() {
         for (std::uint32_t resource = 0; resource < m_info.images.size(); ++resource) {
             auto& image = m_info.images[resource];
             image.guestSample = image.table != NoTable && image.tableOperation == TableOperation::Supported && !image.written && !image.atomic && resource < m_guestAccess.size() && m_guestAccess[resource];
+            if (image.table == NoTable) continue;
+            std::uint32_t why = resource < m_guestWhy.size() ? m_guestWhy[resource] : 9u;
+            if (image.tableOperation != TableOperation::Supported) why = 6u;
+            else if (image.written || image.atomic) why = 7u;
+            GuestCensusNote(0u, why, 0u);
+            if (why == 8u) GuestCensusNote(2u, 0u, 0u);
         }
     }
 
@@ -1734,6 +1751,8 @@ private:
     std::vector<HandlePatch> m_handlePatches;
     std::vector<MemoryPatch> m_memoryPatches;
     std::vector<bool> m_guestAccess;
+    std::vector<std::uint32_t> m_guestWhy;
+    std::uint32_t m_guestFlags = 0u;
     // APS5_TRACE_BDA: address accesses seen by Collect (the first bdaTraceLimit are printed).
     unsigned m_bdaTraces = 0;
     std::unordered_map<std::uint32_t, std::vector<const IrValue*>> m_memoryUsers;

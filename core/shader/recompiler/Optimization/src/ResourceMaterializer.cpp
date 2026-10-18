@@ -1067,6 +1067,60 @@ std::uint32_t decodeTableEntry(const ImageResource& image, std::span<const Image
 
 }
 
+void GuestCensusNote(std::uint32_t kind, std::uint32_t reason, std::uint32_t format) {
+    static const bool enabled = std::getenv("APS5_X_GUEST_CENSUS") != nullptr;
+    if (!enabled) return;
+    static std::array<std::atomic<std::uint64_t>, 64> reasons{};
+    static std::array<std::atomic<std::uint64_t>, 512> formats{};
+    static std::atomic<std::int64_t> last{0};
+    reasons[(kind * 16u + reason) & 63u].fetch_add(1, std::memory_order_relaxed);
+    if (kind == 1u && reason == 4u) formats[format & 511u].fetch_add(1, std::memory_order_relaxed);
+    const auto now = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
+    auto seen = last.load();
+    if (now - seen < 10000 || !last.compare_exchange_strong(seen, now)) return;
+    std::string line = "[guest-census] access";
+    for (std::uint32_t r = 0; r < 16u; ++r) if (const auto v = reasons[r].load(); v != 0) line += " a" + std::to_string(r) + "=" + std::to_string(v);
+    line += " | element";
+    for (std::uint32_t r = 0; r < 16u; ++r) if (const auto v = reasons[16u + r].load(); v != 0) line += " e" + std::to_string(r) + "=" + std::to_string(v);
+    line += " | unsupported formats";
+    for (std::uint32_t f = 0; f < 512u; ++f) if (const auto v = formats[f].load(); v != 0) line += " " + std::to_string(f) + ":" + std::to_string(v);
+    std::fprintf(stderr, "%s\n", line.c_str());
+}
+
+std::uint32_t GuestCensusUnsupported(const std::array<std::uint32_t, 8>& image, const std::array<std::uint32_t, 4>& sampler) {
+    const std::uint32_t format = (image[1] >> 20u) & 0x1ffu;
+    const std::uint32_t textureMinLod = (image[1] >> 8u) & 0xfffu;
+    const std::uint32_t baseLevel = (image[3] >> 12u) & 0xfu;
+    const std::uint32_t lastLevel = (image[3] >> 16u) & 0xfu;
+    const std::uint32_t swizzle = (image[3] >> 20u) & 0x1fu;
+    const std::uint32_t type = (image[3] >> 28u) & 0xfu;
+    const std::uint32_t maxMip = (image[5] >> 4u) & 0xfu;
+    const std::uint32_t clampX = sampler[0] & 7u;
+    const std::uint32_t clampY = (sampler[0] >> 3u) & 7u;
+    const std::uint32_t samplerMinLod = sampler[1] & 0xfffu;
+    const std::uint32_t samplerMaxLod = (sampler[1] >> 12u) & 0xfffu;
+    const std::uint32_t magFilter = (sampler[2] >> 20u) & 3u;
+    const std::uint32_t minFilter = (sampler[2] >> 22u) & 3u;
+    const std::uint32_t mipFilter = (sampler[2] >> 26u) & 3u;
+    const bool rgba8 = format == 56u;
+    const bool bc = format == 169u || format == 170u || format == 175u || format == 177u || format == 179u || format == 181u || format == 182u;
+    const bool srgb = format == 170u || format == 182u;
+    if (!rgba8 && !bc) return 4u;
+    if (type != 9u || baseLevel != 0u || maxMip != lastLevel || textureMinLod != 0u) return 5u;
+    if (rgba8 ? (swizzle != 0u && swizzle != 9u) || lastLevel != 0u : swizzle != 0u && swizzle != 1u && swizzle != 5u && swizzle != 9u) return 6u;
+    for (std::uint32_t channel = 0; channel < 4u; ++channel) {
+        const std::uint32_t selector = (image[3] >> (channel * 3u)) & 7u;
+        if (selector == 2u || selector == 3u) return 6u;
+    }
+    if (swizzle == 0u && image[4] != 0u) return 6u;
+    if ((clampX != 0u && clampX != 2u) || (clampY != 0u && clampY != 2u) || magFilter != minFilter || magFilter > 1u) return 7u;
+    if (samplerMinLod != 0u || samplerMaxLod < (lastLevel << 8u) || (sampler[0] >> 9u) != 0u || (sampler[2] & 0xfffffu) != 0u) return 8u;
+    if (lastLevel != 0u && (clampX != 2u || clampY != 2u || (mipFilter != 1u && mipFilter != 2u))) return 9u;
+    if (format == 179u && magFilter != 0u && mipFilter == 2u && lastLevel != 0u) return 10u;
+    if (srgb && magFilter != 0u) return 11u;
+    return 0u;
+}
+
 ResolvedImageTables ResourceMaterializer::ResolveImageTables(const ShaderInfo& info, const ResourceSnapshot& snapshot, std::uint64_t memoKey) {
     namespace Abi = ImageTableAbi;
     ResolvedImageTables out;
@@ -1096,6 +1150,7 @@ ResolvedImageTables ResourceMaterializer::ResolveImageTables(const ShaderInfo& i
     };
     std::map<std::tuple<std::array<std::uint32_t, 8>, RdnaImageDimension, bool, DescriptorBindingKind>, std::uint32_t> elementIndex;
     std::vector<bool> elementGuest;
+    std::vector<std::uint32_t> elementWhy;
     const auto guestMode = [](const ImageResource& mode) {
         return mode.conversionFormat == IrBufferFormat::Invalid && !mode.depthBits && !mode.depthUnorm16 && !mode.srgbDecode && !mode.constantSwizzle && !mode.packed && !mode.cube && !mode.depthCompare && mode.emulatedCompare == 0u && mode.packedFormat == IrBufferFormat::Invalid && mode.dimension == RdnaImageDimension::Dim2D && mode.numericClass == IrTextureNumericClass::Float;
     };
@@ -1138,6 +1193,9 @@ ResolvedImageTables ResourceMaterializer::ResolveImageTables(const ShaderInfo& i
                 } else {
                     if (inserted) out.elements.push_back({element, mode.dimension, mode.depthCompare, kind, 0u});
                     if (inserted) elementGuest.push_back(true);
+                    if (inserted) elementWhy.push_back(0u);
+                    if (elementWhy[found->second] == 0u && !image.guestSample) elementWhy[found->second] = 1u;
+                    if (elementWhy[found->second] == 0u && !guestMode(mode)) elementWhy[found->second] = 2u;
                     out.elements[found->second].samplers |= directSamplers[resource];
                     elementGuest[found->second] = elementGuest[found->second] && image.guestSample && guestMode(mode);
                     record[Abi::ImageRecordFlags] = decoded << Abi::ModeShift;
@@ -1241,6 +1299,16 @@ ResolvedImageTables ResourceMaterializer::ResolveImageTables(const ShaderInfo& i
             if (((element.samplers >> sampler) & 1u) == 0u) continue;
             const auto& words = snapshot.samplers.at(sampler).dwords;
             capable = Abi::GuestSampleSupported(element.words, {words[0], words[1], words[2], words[3]});
+        }
+        {
+            auto why = elementWhy[index];
+            if (why == 0u && element.samplers == 0u) why = 3u;
+            for (std::uint32_t sampler = 0; why == 0u && sampler < 32u && sampler < info.samplers.size(); ++sampler) {
+                if (((element.samplers >> sampler) & 1u) == 0u) continue;
+                const auto& words = snapshot.samplers.at(sampler).dwords;
+                why = GuestCensusUnsupported(element.words, {words[0], words[1], words[2], words[3]});
+            }
+            GuestCensusNote(1u, why, (element.words[1] >> 20u) & 0x1ffu);
         }
         anyGuest = anyGuest || capable;
         out.map.push_back(capable ? Abi::GuestStateCapable : Abi::GuestStateHost);
