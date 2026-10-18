@@ -3,7 +3,9 @@
 #extension GL_GOOGLE_include_directive : require
 #extension GL_EXT_buffer_reference : require
 
+#ifndef GUEST_SAMPLE_CHECK
 layout(local_size_x = 1) in;
+#endif
 
 #include "GuestSampleTables.glsl"
 
@@ -23,6 +25,9 @@ uint guestLoad32(uint64_t address) {
     }
     return GuestWord(guestDevice + (address - guestOrigin)).value;
 }
+
+#define RoundU64(value, shift) packUint2x32(roundHalfEvenShiftUnsigned(value, shift))
+#define WideShift64(high, low, shift) packUint2x32(wideShiftRight(high, low, shift))
 
 const uint FaultCode = 0xfa017fa0u;
 const uint Bc7Weights2[4] = uint[](0u, 21u, 43u, 64u);
@@ -98,6 +103,8 @@ uint elementByte(uint ex, uint ey, uint widthElements, uint bytesPerElement, uin
         uint pitch = (widthElements + align - 1u) / align * align;
         return (ey * pitch + ex) * bytesPerElement;
     }
+    if (bytesPerElement == 2u && swizzle == 1u) return (((ey >> 3) * ((widthElements + 15u) >> 4) + (ex >> 4)) << 8) + (((ex & 7u) << 1) | ((ey & 7u) << 4) | (((ex >> 3) & 1u) << 7));
+    if (bytesPerElement == 4u && swizzle == 1u) return (((ey >> 3) * ((widthElements + 7u) >> 3) + (ex >> 3)) << 8) + (standardOffset4(ex & 7u, ey & 7u) & 0xffu);
     if (bytesPerElement == 4u && swizzle == 9u) {
         uint blocksPerRow = (widthElements + 127u) >> 7;
         return (((ey >> 7) * blocksPerRow + (ex >> 7)) << 16) + standardOffset4(ex & 127u, ey & 127u);
@@ -261,9 +268,17 @@ Level levelLayout(uint width, uint height, uint levelCount, uint swizzle, uint b
     result.tailX = 0u;
     result.tailY = 0u;
     result.offset = 0u;
-    if (bytesPerElement == 4u) {
+    if (bytesPerElement <= 4u) {
         result.widthElements = result.width;
-        if (levelCount != 1u) faulted = true;
+        if (levelCount == 1u) return result;
+        if (swizzle == 0u) {
+            for (uint j = level + 1u; j < levelCount; ++j) result.offset += alignUp(max(width >> j, 1u), 256u / bytesPerElement) * max(height >> j, 1u) * bytesPerElement;
+        } else if (swizzle == 1u) {
+            uint blockWidth = bytesPerElement == 4u ? 8u : 16u;
+            for (uint j = level + 1u; j < levelCount; ++j) result.offset += alignUp(max(width >> j, 1u), blockWidth) * alignUp(max(height >> j, 1u), 8u) * bytesPerElement;
+        } else {
+            faulted = true;
+        }
         return result;
     }
     uint widthElements0 = (width + 3u) >> 2;
@@ -317,7 +332,8 @@ Level levelLayout(uint width, uint height, uint levelCount, uint swizzle, uint b
 }
 
 uint bytesPerElementOf(uint format) {
-    if (format == 56u) return 4u;
+    if (format == 56u || format == 22u) return 4u;
+    if (format == 7u) return 2u;
     if (format == 169u || format == 170u || format == 175u) return 8u;
     return 16u;
 }
@@ -449,6 +465,12 @@ uvec4 decodeBc6hTexel(uvec4 block, uint pixel) {
 }
 
 uvec4 fetchTexel(uint64_t base, int x, int y, uint format, Level level, uint swizzle) {
+    if (format == 22u || format == 7u) {
+        uint elementOffset = level.offset + elementByte(uint(x), uint(y), level.widthElements, bytesPerElementOf(format), swizzle);
+        uint word = guestLoad32(base + uint64_t(elementOffset & ~3u));
+        if (format == 7u) word = (elementOffset & 2u) != 0u ? word >> 16 : word & 0xffffu;
+        return uvec4(word);
+    }
     if (format == 56u) {
         uint word = guestLoad32(base + uint64_t(elementByte(uint(x), uint(y), level.width, 4u, swizzle)));
         return uvec4(word & 0xffu, (word >> 8) & 0xffu, (word >> 16) & 0xffu, word >> 24);
@@ -471,9 +493,9 @@ uvec4 fetchTexel(uint64_t base, int x, int y, uint format, Level level, uint swi
     if (format == 179u) return decodeBc6hTexel(block, pixel);
     return decodeBc7Texel(block, pixel);
 }
-uint unormFilteredToFloat(uint filtered) {
-    uint64_t r = uint64_t(filtered);
-    uint64_t sum = ((r << 16) & ~uint64_t(7)) + ((r << 8) & ~uint64_t(7)) + (r & ~uint64_t(7)) + ((r >> 8) & ~uint64_t(7)) + ((r >> 16) & ~uint64_t(7));
+const uint Float32GridBits = 19u;
+
+uint fixedToFloatTiesAway(uint64_t sum, int fractionBits) {
     if (sum == uint64_t(0)) return 0u;
     int leading = msb64(sum);
     uint mantissa;
@@ -490,15 +512,44 @@ uint unormFilteredToFloat(uint filtered) {
     } else {
         mantissa = uint(sum << uint(23 - leading));
     }
-    uint exponent = uint(leading - 37 + 127);
+    uint exponent = uint(leading - fractionBits + 127);
     return (exponent << 23) | (mantissa & 0x7fffffu);
+}
+
+uint unormFilteredToFloat(uint filtered) {
+    uint64_t r = uint64_t(filtered);
+    return fixedToFloatTiesAway(((r << 16) & ~uint64_t(7)) + ((r << 8) & ~uint64_t(7)) + (r & ~uint64_t(7)) + ((r >> 8) & ~uint64_t(7)) + ((r >> 16) & ~uint64_t(7)), 37);
+}
+
+uint unorm16FilteredToFloat(uint64_t r) {
+    return fixedToFloatTiesAway(((r << 8) & ~uint64_t(7)) + ((r >> 8) & ~uint64_t(7)) + ((r >> 24) & ~uint64_t(7)), 37);
+}
+
+uint srgbAlphaFilter(uint texels[8], uint tapWeights[8], uint tapLevels[8], uint tapCount, uint levelWeights[2]) {
+    uint64_t levelSums[2] = uint64_t[](uint64_t(0), uint64_t(0));
+    for (uint i = 0u; i < tapCount; ++i) levelSums[tapLevels[i]] += uint64_t(texels[i] * 257u) * uint64_t(tapWeights[i]);
+    uint64_t blended = RoundU64(levelSums[0] * uint64_t(levelWeights[0]), 5) + RoundU64(levelSums[1] * uint64_t(levelWeights[1]), 5);
+    return unorm16FilteredToFloat(RoundU64(blended, 6));
+}
+
+uint unorm16Filter(uint texels[8], uint tapWeights[8], uint tapCount) {
+    uint64_t sum = uint64_t(0);
+    for (uint i = 0u; i < tapCount; ++i) sum += uint64_t(texels[i]) * uint64_t(tapWeights[i]);
+    return unorm16FilteredToFloat(RoundU64(sum, 3));
+}
+
+uint float32Point(uint value) {
+    uint biased = (value >> 23) & 0xffu;
+    if (biased == 0xffu && (value & 0x7fffffu) != 0u) return 0xffc00000u;
+    if (biased == 0u) return value & 0x80000000u;
+    return value;
 }
 
 uint unormFilter(uint texels[8], uint tapWeights[8], uint tapLevels[8], uint tapCount, uint levelWeights[2]) {
     uint64_t levelSums[2] = uint64_t[](uint64_t(0), uint64_t(0));
     for (uint i = 0u; i < tapCount; ++i) levelSums[tapLevels[i]] += uint64_t(texels[i] * tapWeights[i]);
-    uint64_t blended = packUint2x32(roundHalfEvenShiftUnsigned(levelSums[0] * uint64_t(levelWeights[0]), 5)) + packUint2x32(roundHalfEvenShiftUnsigned(levelSums[1] * uint64_t(levelWeights[1]), 5));
-    return unormFilteredToFloat(uint(packUint2x32(roundHalfEvenShiftUnsigned(blended, 6))));
+    uint64_t blended = RoundU64(levelSums[0] * uint64_t(levelWeights[0]), 5) + RoundU64(levelSums[1] * uint64_t(levelWeights[1]), 5);
+    return unormFilteredToFloat(uint(RoundU64(blended, 6)));
 }
 
 uint bc45Filter(uint texels[8], uint tapWeights[8], uint tapLevels[8], uint tapCount, uint levelWeights[2]) {
@@ -523,6 +574,63 @@ uvec2 wideShiftRight(uint64_t high, uint64_t low, int shift) {
     if (shift <= 0) return unpackUint2x32(low << uint(-shift));
     if (shift >= 64) return unpackUint2x32(high >> uint(shift - 64));
     return unpackUint2x32((low >> uint(shift)) | (high << uint(64 - shift)));
+}
+
+uint roundFilterSum(uint64_t high, uint64_t low, bool negative, int unitExponent) {
+    int top = high != uint64_t(0) ? 64 + msb64(high) : msb64(low);
+    int keep = top - 34;
+    if (keep >= 64) {
+        low = uint64_t(0);
+        high &= ~((uint64_t(1) << uint(keep - 64)) - uint64_t(1));
+    } else if (keep > 0) {
+        low &= ~((uint64_t(1) << uint(keep)) - uint64_t(1));
+    }
+    int firstShift = top - 28;
+    uint64_t wide = WideShift64(high, low, firstShift);
+    if (firstShift > 0 && wideBit(high, low, firstShift - 1) != 0u && (wideAnyBelow(high, low, firstShift - 1) || (wide & uint64_t(1)) != uint64_t(0))) wide += uint64_t(1);
+    uint64_t mantissa = RoundU64(wide, 5);
+    int exponent = top + unitExponent;
+    if (mantissa >= (uint64_t(1) << 24)) {
+        mantissa >>= 1;
+        exponent += 1;
+    }
+    if (exponent < -126 || exponent > 127) {
+        faulted = true;
+        return FaultCode;
+    }
+    return (negative ? 0x80000000u : 0u) | (uint(exponent + 127) << 23) | (uint(mantissa) & 0x7fffffu);
+}
+
+uint float32Filter(uint values[8], uint weights[8], uint tapCount, bool singleTexel) {
+    int largest = -1000;
+    bool allNegativeZero = true;
+    for (uint i = 0u; i < tapCount; ++i) {
+        if (weights[i] == 0u) continue;
+        uint biased = (values[i] >> 23) & 0xffu;
+        if (biased == 0xffu || (biased == 0u && (values[i] & 0x7fffffu) != 0u)) {
+            faulted = true;
+            return FaultCode;
+        }
+        if (values[i] != 0x80000000u) allNegativeZero = false;
+        if (biased != 0u) largest = max(largest, int(biased) - 127);
+    }
+    if (largest == -1000) return allNegativeZero && singleTexel ? 0x80000000u : 0u;
+    int64_t sum = int64_t(0);
+    for (uint i = 0u; i < tapCount; ++i) {
+        uint biased = (values[i] >> 23) & 0xffu;
+        if (weights[i] == 0u || biased == 0u) continue;
+        uint shift = uint(largest - (int(biased) - 127));
+        if (shift >= 24u + Float32GridBits) continue;
+        int64_t gridValue = int64_t((uint64_t((values[i] & 0x7fffffu) | 0x800000u) << Float32GridBits) >> shift);
+        if ((values[i] & 0x80000000u) != 0u) gridValue = -gridValue;
+        sum += gridValue * int64_t(weights[i]);
+    }
+    if (sum == int64_t(0)) return 0u;
+    bool negative = sum < int64_t(0);
+    uint64_t magnitude = uint64_t(negative ? -sum : sum);
+    int keep = msb64(magnitude) - 34;
+    if (negative && keep > 0 && (magnitude & ((uint64_t(1) << uint(keep)) - uint64_t(1))) != uint64_t(0)) magnitude = (magnitude & ~((uint64_t(1) << uint(keep)) - uint64_t(1))) + (uint64_t(1) << uint(keep));
+    return roundFilterSum(uint64_t(0), magnitude, negative, largest - 39 - int(Float32GridBits));
 }
 
 uint floatFilter(uint values[8], uint weights[8], uint tapLevels[8], uint tapCount) {
@@ -578,21 +686,7 @@ uint floatFilter(uint values[8], uint weights[8], uint tapLevels[8], uint tapCou
         if (truncatedToZero) faulted = true;
         return 0u;
     }
-    int top = high != uint64_t(0) ? 64 + msb64(high) : msb64(low);
-    int firstShift = top - 28;
-    uint64_t wide = packUint2x32(wideShiftRight(high, low, firstShift));
-    if (firstShift > 0 && wideBit(high, low, firstShift - 1) != 0u && (wideAnyBelow(high, low, firstShift - 1) || (wide & uint64_t(1)) != uint64_t(0))) wide += uint64_t(1);
-    uint64_t mantissa = packUint2x32(roundHalfEvenShiftUnsigned(wide, 5));
-    int exponent = top + lowest - 44;
-    if (mantissa >= (uint64_t(1) << 24)) {
-        mantissa >>= 1;
-        exponent += 1;
-    }
-    if (exponent < -126 || exponent > 127) {
-        faulted = true;
-        return FaultCode;
-    }
-    return (negative ? 0x80000000u : 0u) | (uint(exponent + 127) << 23) | (uint(mantissa) & 0x7fffffu);
+    return roundFilterSum(high, low, negative, lowest - 44);
 }
 
 uint selectChannel(uint selector, uvec4 value) {
@@ -608,17 +702,102 @@ uint selectChannel(uint selector, uvec4 value) {
     return FaultCode;
 }
 
-uvec4 sampleGuest(uvec4 tlow, uvec4 thigh, uvec4 ssharp, uvec4 row, uvec4 memory, out uint fault) {
+const int AbsentExponent = -100000;
+const ivec2 LengthLines[5] = ivec2[](ivec2(1024, 64), ivec2(1000, 224), ivec2(952, 384), ivec2(884, 520), ivec2(788, 656));
+
+bool decodeDerivative(uint bits, out uint mantissa, out int exponent) {
+    uint biased = (bits >> 23) & 0xffu;
+    mantissa = 0u;
+    exponent = AbsentExponent;
+    if (biased == 0xffu || (biased == 0u && (bits & 0x7fffffu) != 0u)) {
+        faulted = true;
+        return false;
+    }
+    if (biased == 0u) return false;
+    mantissa = (bits & 0x7fffffu) | 0x800000u;
+    exponent = int(biased) - 127;
+    return true;
+}
+
+int alignDerivative(uint bits, uint mantissa, int shift) {
+    uint magnitude = shift >= 32 ? 0u : min((mantissa + (1u << uint(shift - 1))) >> uint(shift), 2047u);
+    return (bits >> 31) != 0u ? -int(magnitude) : int(magnitude);
+}
+
+int roundSignedHalfUp(int value, int shift) {
+    if (shift <= 0) return value;
+    if (shift > 30) return 0;
+    return (value + (1 << (shift - 1))) >> shift;
+}
+
+int sizeSignificand(uint size, out int log2Size) {
+    log2Size = findMSB(size);
+    uint fraction = log2Size <= 10 ? ((size << 10) >> uint(log2Size)) & 1023u : (size >> uint(log2Size - 10)) & 1023u;
+    return int(1024u + fraction);
+}
+
+uint polygonLength(int x, int y) {
+    int major = max(abs(x), abs(y));
+    int minor = min(abs(x), abs(y));
+    int best = 0;
+    for (uint i = 0u; i < 5u; ++i) best = max(best, (LengthLines[i].x * major + LengthLines[i].y * minor + 512) >> 10);
+    return uint(best);
+}
+
+uint derivativeLod(uvec4 derivatives, uint width, uint height, uint lastLevel) {
+    uint mantissas[4];
+    int exponents[4];
+    bool present[4];
+    for (uint i = 0u; i < 4u; ++i) present[i] = decodeDerivative(derivatives[i], mantissas[i], exponents[i]);
+    if (faulted) return 0u;
+    int sizeLog2[2];
+    int sizeSignificands[2] = int[](sizeSignificand(width, sizeLog2[0]), sizeSignificand(height, sizeLog2[1]));
+    int pairExponents[2] = int[](AbsentExponent, AbsentExponent);
+    for (uint i = 0u; i < 4u; ++i) {
+        if (present[i]) pairExponents[i & 1u] = max(pairExponents[i & 1u], exponents[i]);
+    }
+    int pairScales[2];
+    for (uint pair = 0u; pair < 2u; ++pair) pairScales[pair] = pairExponents[pair] == AbsentExponent ? AbsentExponent : pairExponents[pair] + sizeLog2[pair];
+    int scale = max(pairScales[0], pairScales[1]);
+    if (scale == AbsentExponent) {
+        faulted = true;
+        return 0u;
+    }
+    int products[4];
+    for (uint i = 0u; i < 4u; ++i) {
+        products[i] = 0;
+        if (!present[i]) continue;
+        uint pair = i & 1u;
+        int aligned = alignDerivative(derivatives[i], mantissas[i], 13 + pairExponents[pair] - exponents[i]);
+        int product = (aligned * sizeSignificands[pair] + 512) >> 10;
+        products[i] = roundSignedHalfUp(product, scale - pairScales[pair]);
+    }
+    uint first = polygonLength(products[0] + products[3], products[2] - products[1]);
+    uint second = polygonLength(products[0] - products[3], products[2] + products[1]);
+    uint t = ((first + second) >> 1) << 1;
+    if (t < 2048u || t >= 16384u) {
+        faulted = true;
+        return 0u;
+    }
+    uint entry = (DerivativeLodByT[(t - 2048u) >> 2] >> (((t >> 1) & 1u) * 16u)) & 0xffffu;
+    if (entry == 0xffffu) {
+        faulted = true;
+        return 0u;
+    }
+    return uint(clamp(256 * scale + int(entry), 0, int(lastLevel) * 256));
+}
+
+uvec4 sampleGuest(uvec4 tlow, uvec4 thigh, uvec4 ssharp, uvec4 row, uvec4 derivatives, uvec4 memory, out uint fault) {
     faulted = false;
     guestOutside = false;
     fault = 1u;
-    uint t1 = tlow.y;
-    uint t2 = tlow.z;
-    uint t3 = tlow.w;
-    uint64_t base = (uint64_t(tlow.x) | (uint64_t(t1 & 0xffu) << 32)) << 8;
+    uint64_t base = (uint64_t(tlow.x) | (uint64_t(tlow.y & 0xffu) << 32)) << 8;
     guestOrigin = base;
     guestDevice = uint64_t(memory.x) | (uint64_t(memory.y) << 32);
     guestBytes = uint64_t(memory.z);
+    uint t1 = tlow.y;
+    uint t2 = tlow.z;
+    uint t3 = tlow.w;
     uint format = (t1 >> 20) & 0x1ffu;
     uint width = (((t1 >> 30) & 3u) | ((t2 & 0xfffu) << 2)) + 1u;
     uint height = ((t2 >> 14) & 0x3fffu) + 1u;
@@ -635,16 +814,30 @@ uvec4 sampleGuest(uvec4 tlow, uvec4 thigh, uvec4 ssharp, uvec4 row, uvec4 memory
     uint magFilter = (ssharp.z >> 20) & 3u;
     uint minFilter = (ssharp.z >> 22) & 3u;
     uint mipFilter = (ssharp.z >> 26) & 3u;
-    bool knownFormat = format == 56u || format == 169u || format == 170u || format == 175u || format == 177u || format == 179u || format == 181u || format == 182u;
+    bool knownFormat = format == 7u || format == 22u || format == 56u || format == 169u || format == 170u || format == 175u || format == 177u || format == 179u || format == 181u || format == 182u;
     bool srgb = format == 170u || format == 182u;
     bool supported = knownFormat && type == 9u && (clampX == 0u || clampX == 2u) && (clampY == 0u || clampY == 2u) && magFilter == minFilter && magFilter <= 1u;
     supported = supported && baseLevel == 0u && maxMip == lastLevel && textureMinLod == 0u && samplerMinLod == 0u && samplerMaxLod >= (lastLevel << 8);
     supported = supported && (ssharp.x >> 9) == 0u && (ssharp.z & 0xfffffu) == 0u;
     supported = supported && (lastLevel == 0u || (clampX == 2u && clampY == 2u && (mipFilter == 1u || mipFilter == 2u)));
-    if (!supported) return uvec4(0u);
-    float lod = uintBitsToFloat(row.z);
-    if (isnan(lod)) return uvec4(0u);
-    uint quantizedLod = uint(roundEven(clamp(lod, 0.0, float(lastLevel)) * 256.0));
+    if (!supported) {
+        return uvec4(0u);
+    }
+    bool derivativeRows = row.w == 1u && lastLevel != 0u;
+    if (row.w > 1u) return uvec4(0u);
+    uint quantizedLod;
+    if (derivativeRows) {
+        quantizedLod = derivativeLod(derivatives, width, height, lastLevel);
+        if (faulted) {
+            return uvec4(0u);
+        }
+    } else {
+        float lod = uintBitsToFloat(row.z);
+        if (isnan(lod)) {
+            return uvec4(0u);
+        }
+        quantizedLod = uint(roundEven(clamp(lod, 0.0, float(lastLevel)) * 256.0));
+    }
     uint firstLevel = 0u;
     uint fraction = 0u;
     if (mipFilter == 1u) {
@@ -657,10 +850,13 @@ uvec4 sampleGuest(uvec4 tlow, uvec4 thigh, uvec4 ssharp, uvec4 row, uvec4 memory
             fraction = 0u;
         }
     }
-    if (format == 179u && fraction != 0u && magFilter != 0u) return uvec4(0u);
+    if ((format == 22u || format == 7u) && fraction != 0u) {
+        return uvec4(0u);
+    }
     uint levelWeights[2] = uint[](256u - fraction, fraction);
     uint levelSlots = fraction != 0u ? 2u : 1u;
     uvec4 tapTexels[8];
+    bool singleTexel = true;
     uint tapWeights[8];
     uint tapLevels[8];
     uint tapCount = 0u;
@@ -691,6 +887,7 @@ uvec4 sampleGuest(uvec4 tlow, uvec4 thigh, uvec4 ssharp, uvec4 row, uvec4 memory
         tapTexels[tapCount + 1u] = fetchTexel(base, xb, ya, format, level, swizzle);
         tapTexels[tapCount + 2u] = fetchTexel(base, xa, yb, format, level, swizzle);
         tapTexels[tapCount + 3u] = fetchTexel(base, xb, yb, format, level, swizzle);
+        singleTexel = singleTexel && (xa == xb || wx == 0u) && (ya == yb || wy == 0u);
         tapWeights[tapCount] = (256u - wx) * (256u - wy);
         tapWeights[tapCount + 1u] = wx * (256u - wy);
         tapWeights[tapCount + 2u] = (256u - wx) * wy;
@@ -702,7 +899,13 @@ uvec4 sampleGuest(uvec4 tlow, uvec4 thigh, uvec4 ssharp, uvec4 row, uvec4 memory
     for (uint c = 0u; c < 4u; ++c) {
         uint texels[8];
         for (uint i = 0u; i < 8u; ++i) texels[i] = i < tapCount ? tapTexels[i][c] : 0u;
-        if (format == 179u) {
+        if (format == 22u && magFilter == 0u) {
+            value[c] = float32Point(texels[0]);
+        } else if (format == 7u) {
+            value[c] = unorm16Filter(texels, tapWeights, tapCount);
+        } else if (format == 22u) {
+            value[c] = float32Filter(texels, tapWeights, tapCount, singleTexel);
+        } else if (format == 179u) {
             uint values[8];
             uint weights[8];
             for (uint i = 0u; i < 8u; ++i) {
@@ -718,9 +921,8 @@ uvec4 sampleGuest(uvec4 tlow, uvec4 thigh, uvec4 ssharp, uvec4 row, uvec4 memory
                 weights[i] = i < tapCount ? tapWeights[i] * levelWeights[tapLevels[i]] : 0u;
             }
             value[c] = floatFilter(values, weights, tapLevels, tapCount);
-        } else if (srgb && magFilter != 0u) {
-            faulted = true;
-            value[c] = FaultCode;
+        } else if (srgb) {
+            value[c] = srgbAlphaFilter(texels, tapWeights, tapLevels, tapCount, levelWeights);
         } else {
             value[c] = (format == 175u || format == 177u) ? bc45Filter(texels, tapWeights, tapLevels, tapCount, levelWeights) : unormFilter(texels, tapWeights, tapLevels, tapCount, levelWeights);
         }
@@ -731,5 +933,7 @@ uvec4 sampleGuest(uvec4 tlow, uvec4 thigh, uvec4 ssharp, uvec4 row, uvec4 memory
     return selected;
 }
 
+#ifndef GUEST_SAMPLE_CHECK
 void main() {
 }
+#endif

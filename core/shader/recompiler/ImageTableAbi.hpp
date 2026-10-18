@@ -148,11 +148,11 @@ constexpr bool GuestSampleSupported(const std::array<std::uint32_t, 8>& image, c
     const std::uint32_t minFilter = (sampler[2] >> 22u) & 3u;
     const std::uint32_t mipFilter = (sampler[2] >> 26u) & 3u;
     const bool rgba8 = format == 56u;
+    const bool single = format == 7u || format == 22u;
     const bool bc = format == 169u || format == 170u || format == 175u || format == 177u || format == 179u || format == 181u || format == 182u;
-    const bool srgb = format == 170u || format == 182u;
-    if (!rgba8 && !bc) return false;
+    if (!rgba8 && !single && !bc) return false;
     if (type != 9u || baseLevel != 0u || maxMip != lastLevel || textureMinLod != 0u) return false;
-    if (rgba8 ? (swizzle != 0u && swizzle != 9u) || lastLevel != 0u : swizzle != 0u && swizzle != 1u && swizzle != 5u && swizzle != 9u) return false;
+    if (rgba8 ? (swizzle != 0u && swizzle != 9u) || lastLevel != 0u : single ? swizzle != 0u && swizzle != 1u : swizzle != 0u && swizzle != 1u && swizzle != 5u && swizzle != 9u) return false;
     for (std::uint32_t channel = 0; channel < 4u; ++channel) {
         const std::uint32_t selector = (image[3] >> (channel * 3u)) & 7u;
         if (selector == 2u || selector == 3u) return false;
@@ -161,8 +161,7 @@ constexpr bool GuestSampleSupported(const std::array<std::uint32_t, 8>& image, c
     if ((clampX != 0u && clampX != 2u) || (clampY != 0u && clampY != 2u) || magFilter != minFilter || magFilter > 1u) return false;
     if (samplerMinLod != 0u || samplerMaxLod < (lastLevel << 8u) || (sampler[0] >> 9u) != 0u || (sampler[2] & 0xfffffu) != 0u) return false;
     if (lastLevel != 0u && (clampX != 2u || clampY != 2u || (mipFilter != 1u && mipFilter != 2u))) return false;
-    if (format == 179u && magFilter != 0u && mipFilter == 2u && lastLevel != 0u) return false;
-    if (srgb && magFilter != 0u) return false;
+    if (single && lastLevel != 0u && mipFilter == 2u) return false;
     return true;
 }
 

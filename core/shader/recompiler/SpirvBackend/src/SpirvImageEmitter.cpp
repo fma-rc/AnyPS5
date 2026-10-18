@@ -1759,6 +1759,15 @@ void EmitGuestSample(SpirvValueEmitContext& ctx, const IrValue& inst, const Imag
     const auto u = AddressU32(ctx, emitAccess, layout.coord);
     const auto v = AddressU32(ctx, emitAccess, layout.coord + 1u);
     const auto lod = HasFlag(memory, RdnaImageSampleFlagLod) ? AddressU32(ctx, emitAccess, layout.lod) : ConstantU32(state, 0u);
+    const bool derivative = HasFlag(memory, RdnaImageSampleFlagDerivative);
+    if (derivative && (layout.gradX == NoImageComponent || layout.gradY == NoImageComponent || memory.imageAddressComponents < layout.gradY + 2u)) ctx.Fail(inst, "has an image address with too few gradient components");
+    std::uint32_t derivatives = 0;
+    if (derivative) {
+        derivatives = state.module.AllocateId();
+        state.module.AddFunction(spv::OpCompositeConstruct, vec4, derivatives, AddressU32(ctx, emitAccess, layout.gradX), AddressU32(ctx, emitAccess, layout.gradX + 1u), AddressU32(ctx, emitAccess, layout.gradY), AddressU32(ctx, emitAccess, layout.gradY + 1u));
+    } else {
+        derivatives = ConstantU32CompositeZero(state, 4u);
+    }
     const auto quad = [&](std::uint32_t base, std::uint32_t first) {
         const auto value = state.module.AllocateId();
         state.module.AddFunction(spv::OpCompositeConstruct, vec4, value, TableMapAt(state, base, first), TableMapAt(state, base, first + 1u), TableMapAt(state, base, first + 2u), TableMapAt(state, base, first + 3u));
@@ -1769,10 +1778,10 @@ void EmitGuestSample(SpirvValueEmitContext& ctx, const IrValue& inst, const Imag
         const auto element = Binary(state, spv::OpIAdd, u32, LoadTableMap(state, ConstantU32(state, ImageTableAbi::HeaderGuestElements)), Binary(state, spv::OpIMul, u32, access.element, ConstantU32(state, ImageTableAbi::GuestElementWords)));
         const auto samplers = Binary(state, spv::OpIAdd, u32, LoadTableMap(state, ConstantU32(state, ImageTableAbi::HeaderGuestSamplers)), ConstantU32(state, memory.sampler * ImageTableAbi::GuestSamplerWords));
         const auto row = state.module.AllocateId();
-        state.module.AddFunction(spv::OpCompositeConstruct, vec4, row, u, v, lod, ConstantU32(state, 0u));
+        state.module.AddFunction(spv::OpCompositeConstruct, vec4, row, u, v, lod, ConstantU32(state, derivative ? 1u : 0u));
         const auto memoryWords = Binary(state, spv::OpIAdd, u32, LoadTableMap(state, ConstantU32(state, ImageTableAbi::HeaderGuestMemory)), Binary(state, spv::OpIMul, u32, access.element, ConstantU32(state, ImageTableAbi::GuestMemoryWords)));
         std::uint32_t fault = 0;
-        const auto sampled = EmitGuestSampleCall(state, quad(element, 0u), quad(element, 4u), quad(samplers, 0u), row, quad(memoryWords, 0u), fault);
+        const auto sampled = EmitGuestSampleCall(state, quad(element, 0u), quad(element, 4u), quad(samplers, 0u), row, derivatives, quad(memoryWords, 0u), fault);
         EmitTableFault(ctx, inst, access.word, LoadTableMap(state, ConstantU32(state, ImageTableAbi::HeaderGuestFault)), Binary(state, spv::OpINotEqual, boolean, fault, ConstantU32(state, 0u)));
         const auto used = Binary(state, spv::OpIAdd, u32, LoadTableMap(state, ConstantU32(state, ImageTableAbi::HeaderGuestUsed)), access.element);
         EmitIfCondition(state, Binary(state, spv::OpIEqual, boolean, LoadTableMap(state, used), ConstantU32(state, 0u)), [&] {

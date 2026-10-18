@@ -7,6 +7,7 @@
 #include "Recompiler.hpp"
 #include "VulkanTestDevice.hpp"
 #include "GuestSampledTableData.hpp"
+#include "GuestSampledTableDerivativeData.hpp"
 #include <algorithm>
 #include <array>
 #include <cstdint>
@@ -44,12 +45,16 @@ constexpr std::size_t Bc7Offset = 0x10000;
 constexpr std::size_t Bc7MipOffset = 0x20000;
 constexpr std::size_t Bc7CopyOffset = 0x14000;
 constexpr std::size_t Rgba8CopyOffset = 0x60000;
-constexpr std::uint32_t Records = 5;
+constexpr std::size_t R16Offset = 0x70000;
+constexpr std::size_t R32fOffset = 0x72000;
+constexpr std::size_t Bc7DerivativeOffset = 0x78000;
+constexpr std::uint32_t Records = 8;
 constexpr std::size_t SrtOffset = 0x30000;
 constexpr std::size_t TableOffset = 0x30100;
-constexpr std::size_t KeysOffset = 0x30200;
+constexpr std::size_t KeysOffset = 0x30400;
 constexpr std::size_t RowsOffset = 0x40000;
 constexpr std::size_t OutputOffset = 0x50000;
+constexpr std::size_t RowsBytes = OutputOffset - RowsOffset;
 
 // Per group: record = Keys[group]; T# = the record's eight words at +16; each lane samples the
 // group's row (u, v, lod) with image_sample_l and the S# at Srt+48, storing the four words.
@@ -58,6 +63,15 @@ alignas(256) constexpr std::array<std::uint32_t, 29> SampleCode{
     0xf4080500u, 0xfa000040u, 0x8f108202u, 0xf4200444u, 0x20000000u, 0x9312b011u, 0xf42c0902u, 0x24000010u,
     0x7e120202u, 0x34101286u, 0x4a101100u, 0x34101084u, 0xe0381000u, 0x80050a08u, 0xbf8c3f70u, 0xf0900f08u,
     0x0109040au, 0xbf8c3f70u, 0xe0781000u, 0x80070408u, 0xbf810000u,
+};
+
+// As SampleCode, but each lane's row is du/dx, dv/dx, du/dy, dv/dy, u, v (32 bytes) and it samples with image_sample_d.
+alignas(256) constexpr std::array<std::uint32_t, 34> SampleDerivativeCode{
+    0xf4080100u, 0xfa000000u, 0xf4080200u, 0xfa000010u, 0xf4080700u, 0xfa000020u, 0xf4080800u, 0xfa000030u,
+    0xf4080500u, 0xfa000040u, 0x8f108202u, 0xbf8cc07fu, 0xf4200444u, 0x20000000u, 0xbf8cc07fu, 0x9312b011u,
+    0xf42c0902u, 0x24000010u, 0x7e120202u, 0x34101286u, 0x4a101100u, 0x34121085u, 0x34101084u, 0xe0381000u,
+    0x80050a09u, 0xe0341010u, 0x80050e09u, 0xbf8c0070u, 0xf0880f08u, 0x0109040au, 0xbf8c3f70u, 0xe0781000u,
+    0x80070408u, 0xbf810000u,
 };
 
 std::array<std::uint32_t, 4> Sampler(std::uint32_t mag, std::uint32_t min, std::uint32_t mip) {
@@ -133,12 +147,13 @@ struct Case {
     std::array<std::uint32_t, 4> sampler;
     std::span<const std::uint32_t> rows;
     std::span<const std::uint32_t> expected;
+    std::uint32_t rowWords = 4;
 };
 
 std::vector<std::uint32_t> Sample(AgcDriver::VulkanDevice& device, GuestBlock& block, const Case& test) {
-    const auto rows = static_cast<std::uint32_t>(test.rows.size() / 4u);
+    const auto rows = static_cast<std::uint32_t>(test.rows.size() / test.rowWords);
     const auto groups = (rows + Lanes - 1u) / Lanes;
-    Require(groups <= MaxGroups, "guest sampled table: too many rows");
+    Require(groups <= MaxGroups && test.rows.size() * sizeof(std::uint32_t) <= RowsBytes, "guest sampled table: too many rows");
     auto* srt = block.At<std::uint32_t>(SrtOffset);
     auto* keys = block.At<std::uint32_t>(KeysOffset);
     auto* rowWords = block.At<std::uint32_t>(RowsOffset);
@@ -146,7 +161,7 @@ std::vector<std::uint32_t> Sample(AgcDriver::VulkanDevice& device, GuestBlock& b
     const auto table = Buffer(block.At<std::uint32_t>(TableOffset), Records * Stride);
     const auto keyBuffer = Buffer(keys, MaxGroups * 4u);
     const auto outputBuffer = Buffer(output, MaxGroups * Lanes * 16u);
-    const auto rowBuffer = Buffer(rowWords, MaxGroups * Lanes * 16u);
+    const auto rowBuffer = Buffer(rowWords, static_cast<std::uint32_t>(RowsBytes));
     std::copy(table.begin(), table.end(), srt);
     std::copy(keyBuffer.begin(), keyBuffer.end(), srt + 4);
     std::copy(outputBuffer.begin(), outputBuffer.end(), srt + 8);
@@ -154,10 +169,10 @@ std::vector<std::uint32_t> Sample(AgcDriver::VulkanDevice& device, GuestBlock& b
     std::copy(rowBuffer.begin(), rowBuffer.end(), srt + 16);
     std::fill(keys, keys + MaxGroups, 0u);
     std::fill(keys, keys + groups, test.record);
-    std::fill(rowWords, rowWords + MaxGroups * Lanes * 4u, 0u);
+    std::fill(rowWords, rowWords + RowsBytes / sizeof(std::uint32_t), 0u);
     std::copy(test.rows.begin(), test.rows.end(), rowWords);
     std::fill(output, output + MaxGroups * Lanes * 4u, 0xdeadbeefu);
-    const std::span<const std::uint32_t> span(SampleCode);
+    const std::span<const std::uint32_t> span = test.rowWords == 8u ? std::span<const std::uint32_t>(SampleDerivativeCode) : std::span<const std::uint32_t>(SampleCode);
     const std::array<ShaderRecompiler::MemoryRegion, 4> memory{{
         {reinterpret_cast<std::uintptr_t>(span.data()), std::as_bytes(span)},
         {reinterpret_cast<std::uintptr_t>(srt), std::as_bytes(std::span(srt, 32))},
@@ -228,22 +243,34 @@ void RunTests(AgcDriver::VulkanDevice& device) {
     std::memcpy(block.At<std::uint8_t>(Bc7Offset), GuestSampledTableData::Bc7Memory.data(), sizeof(GuestSampledTableData::Bc7Memory));
     std::memcpy(block.At<std::uint8_t>(Bc7CopyOffset), GuestSampledTableData::Bc7Memory.data(), sizeof(GuestSampledTableData::Bc7Memory));
     std::memcpy(block.At<std::uint8_t>(Bc7MipOffset), GuestSampledTableData::Bc7MipMemory.data(), sizeof(GuestSampledTableData::Bc7MipMemory));
+    std::memcpy(block.At<std::uint8_t>(Bc7DerivativeOffset), GuestSampledTableData::Bc7MipMemory.data(), sizeof(GuestSampledTableData::Bc7MipMemory));
+    std::memcpy(block.At<std::uint8_t>(R16Offset), GuestSampledTableDerivativeData::R16Memory.data(), sizeof(GuestSampledTableDerivativeData::R16Memory));
+    std::memcpy(block.At<std::uint8_t>(R32fOffset), GuestSampledTableDerivativeData::R32fMemory.data(), sizeof(GuestSampledTableDerivativeData::R32fMemory));
     constexpr std::uint32_t formatRgba8 = 56;
     constexpr std::uint32_t formatBc7 = 181;
     constexpr std::uint32_t swizzle64KbS = 9;
     constexpr std::uint32_t swizzle4KbS = 5;
+    constexpr std::uint32_t swizzle256BS = 1;
+    constexpr std::uint32_t formatR16 = 7;
+    constexpr std::uint32_t formatR32f = 22;
     const std::array<std::array<std::uint32_t, 8>, Records> records{
         TextureWords(block.At<std::uint8_t>(Rgba8Offset), formatRgba8, 120, 68, swizzle64KbS, 0),
         TextureWords(block.At<std::uint8_t>(Bc7Offset), formatBc7, 72, 40, swizzle4KbS, 0),
         TextureWords(block.At<std::uint8_t>(Bc7MipOffset), formatBc7, 128, 64, swizzle4KbS, 5),
         TextureWords(block.At<std::uint8_t>(Rgba8CopyOffset), formatRgba8, 120, 68, swizzle64KbS, 0),
         TextureWords(block.At<std::uint8_t>(Bc7CopyOffset), formatBc7, 72, 40, swizzle4KbS, 0),
+        TextureWords(block.At<std::uint8_t>(R16Offset), formatR16, 64, 64, swizzle256BS, 0),
+        TextureWords(block.At<std::uint8_t>(R32fOffset), formatR32f, 64, 64, swizzle256BS, 0),
+        TextureWords(block.At<std::uint8_t>(Bc7DerivativeOffset), formatBc7, 128, 64, swizzle4KbS, 5),
     };
     auto* table = block.At<std::uint32_t>(TableOffset);
     for (std::size_t record = 0; record < records.size(); ++record) std::copy(records[record].begin(), records[record].end(), table + record * (Stride / 4u) + 4u);
     using namespace GuestSampledTableData;
     // Promotion is per T#: each case samples its own copy of the surface.
     RunCase(device, block, {"rgba8/bilinear", 0, Sampler(1, 1, 0), Rgba8Rows, Rgba8Bilinear});
+    RunCase(device, block, {"r16/bilinear", 5, Sampler(1, 1, 0), GuestSampledTableDerivativeData::SingleChannelRows, GuestSampledTableDerivativeData::R16Bilinear});
+    RunCase(device, block, {"r32f/bilinear", 6, Sampler(1, 1, 0), GuestSampledTableDerivativeData::SingleChannelRows, GuestSampledTableDerivativeData::R32fBilinear});
+    RunCase(device, block, {"bc7-derivative", 7, Sampler(1, 1, 2), GuestSampledTableDerivativeData::Bc7DerivativeRows, GuestSampledTableDerivativeData::Bc7DerivativeTrilinear, 8});
     RunCase(device, block, {"bc7/point", 1, Sampler(0, 0, 0), Bc7PointRows, Bc7Point});
     RunCase(device, block, {"bc7-mips/point", 2, Sampler(0, 0, 1), Bc7MipRows, Bc7MipPoint});
     RunCase(device, block, {"rgba8/point", 3, Sampler(0, 0, 0), Rgba8Rows, Rgba8Point});
