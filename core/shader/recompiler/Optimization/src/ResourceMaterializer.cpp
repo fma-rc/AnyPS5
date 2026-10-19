@@ -1120,7 +1120,7 @@ std::uint32_t GuestCensusUnsupported(const std::array<std::uint32_t, 8>& image, 
     if (type != 9u) noteDetail(0x500u | type);
     else if (baseLevel != 0u) noteDetail(0x510u | baseLevel);
     else if (maxMip != lastLevel) noteDetail(0x600u | (maxMip << 4u) | lastLevel);
-    else if (textureMinLod != 0u) noteDetail(0x520u);
+    else if (textureMinLod != 0u) { noteDetail(0x520u); noteDetail(0x900u | std::min(textureMinLod >> 4u, 0xffu)); }
     if (type != 9u || baseLevel != 0u || maxMip != lastLevel || textureMinLod != 0u) return 5u;
     if (rgba8 ? (swizzle != 0u && swizzle != 9u) || lastLevel != 0u : single ? swizzle != 0u && swizzle != 1u : swizzle != 0u && swizzle != 1u && swizzle != 5u && swizzle != 9u) return 6u;
     for (std::uint32_t channel = 0; channel < 4u; ++channel) {
@@ -1129,7 +1129,7 @@ std::uint32_t GuestCensusUnsupported(const std::array<std::uint32_t, 8>& image, 
     }
     if (swizzle == 0u && image[4] != 0u) return 6u;
     if ((clampX != 0u && clampX != 2u) || (clampY != 0u && clampY != 2u)) noteDetail(0x700u | (clampX << 4u) | clampY);
-    else if (magFilter != minFilter || magFilter > 1u) noteDetail(0x800u | (magFilter << 4u) | minFilter);
+    else if (magFilter != minFilter || magFilter > 1u) { noteDetail(0x800u | (magFilter << 4u) | minFilter); noteDetail(0xa00u | (((sampler[0] >> 9u) & 7u) << 4u) | ((sampler[2] >> 26u) & 3u)); }
     if ((clampX != 0u && clampX != 2u) || (clampY != 0u && clampY != 2u) || magFilter != minFilter || magFilter > 1u) return 7u;
     if (samplerMinLod != 0u || samplerMaxLod < (lastLevel << 8u) || (sampler[0] >> 9u) != 0u || (sampler[2] & 0xfffffu) != 0u) return 8u;
     if (lastLevel != 0u && (clampX != 2u || clampY != 2u || (mipFilter != 1u && mipFilter != 2u))) return 9u;
