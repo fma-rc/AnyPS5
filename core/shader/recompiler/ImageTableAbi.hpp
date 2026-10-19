@@ -1,6 +1,7 @@
 #ifndef CORE_SHADER_RECOMPILER_IMAGETABLEABI_HPP
 #define CORE_SHADER_RECOMPILER_IMAGETABLEABI_HPP
 
+#include <algorithm>
 #include <array>
 #include <cstdint>
 #include <optional>
@@ -143,7 +144,6 @@ constexpr bool GuestSampleSupported(const std::array<std::uint32_t, 8>& image, c
     const std::uint32_t clampX = sampler[0] & 7u;
     const std::uint32_t clampY = (sampler[0] >> 3u) & 7u;
     const std::uint32_t samplerMinLod = sampler[1] & 0xfffu;
-    const std::uint32_t samplerMaxLod = (sampler[1] >> 12u) & 0xfffu;
     const std::uint32_t magFilter = (sampler[2] >> 20u) & 3u;
     const std::uint32_t minFilter = (sampler[2] >> 22u) & 3u;
     const std::uint32_t mipFilter = (sampler[2] >> 26u) & 3u;
@@ -151,7 +151,7 @@ constexpr bool GuestSampleSupported(const std::array<std::uint32_t, 8>& image, c
     const bool single = format == 7u || format == 22u;
     const bool bc = format == 169u || format == 170u || format == 175u || format == 177u || format == 179u || format == 181u || format == 182u;
     if (!rgba8 && !single && !bc) return false;
-    if (type != 9u || baseLevel != 0u || maxMip != lastLevel || textureMinLod != 0u) return false;
+    if (type != 9u || baseLevel != 0u || maxMip != lastLevel || std::max(textureMinLod, samplerMinLod) > (lastLevel << 8u)) return false;
     if (rgba8 ? (swizzle != 0u && swizzle != 9u) || lastLevel != 0u : single ? swizzle != 0u && swizzle != 1u : swizzle != 0u && swizzle != 1u && swizzle != 5u && swizzle != 9u) return false;
     for (std::uint32_t channel = 0; channel < 4u; ++channel) {
         const std::uint32_t selector = (image[3] >> (channel * 3u)) & 7u;
@@ -159,7 +159,7 @@ constexpr bool GuestSampleSupported(const std::array<std::uint32_t, 8>& image, c
     }
     if (swizzle == 0u && image[4] != 0u) return false;
     if ((clampX != 0u && clampX != 2u) || (clampY != 0u && clampY != 2u) || magFilter != minFilter || magFilter > 1u) return false;
-    if (samplerMinLod != 0u || samplerMaxLod < (lastLevel << 8u) || (sampler[0] >> 9u) != 0u || (sampler[2] & 0xfffffu) != 0u) return false;
+    if ((sampler[0] >> 9u) != 0u || (sampler[2] & 0xfffffu) != 0u) return false;
     if (lastLevel != 0u && (clampX != 2u || clampY != 2u || (mipFilter != 1u && mipFilter != 2u))) return false;
     if (single && lastLevel != 0u && mipFilter == 2u) return false;
     return true;

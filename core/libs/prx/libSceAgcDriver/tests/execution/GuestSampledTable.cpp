@@ -9,6 +9,7 @@
 #include "GuestSampledTableData.hpp"
 #include "GuestSampledTableDerivativeData.hpp"
 #include "GuestSampledTableImplicitData.hpp"
+#include "GuestSampledTableMinLodData.hpp"
 #include <algorithm>
 #include <array>
 #include <cstdint>
@@ -40,7 +41,7 @@ using ShaderRecompiler::ShaderStage;
 constexpr std::uint32_t Lanes = 64;
 constexpr std::uint32_t MaxGroups = 64;
 constexpr std::uint32_t Stride = 48;
-constexpr std::size_t BlockBytes = 0x90000;
+constexpr std::size_t BlockBytes = 0xa0000;
 constexpr std::size_t Rgba8Offset = 0x00000;
 constexpr std::size_t Bc7Offset = 0x10000;
 constexpr std::size_t Bc7MipOffset = 0x20000;
@@ -51,7 +52,10 @@ constexpr std::size_t R32fOffset = 0x72000;
 constexpr std::size_t Bc7DerivativeOffset = 0x78000;
 constexpr std::size_t Bc7ImplicitOffset = 0x80000;
 constexpr std::size_t Bc7BiasOffset = 0x85000;
-constexpr std::uint32_t Records = 10;
+constexpr std::size_t Bc7MinLodTrilinearOffset = 0x8a000;
+constexpr std::size_t Bc7MinLodPointOffset = 0x8f000;
+constexpr std::size_t Bc7MinLodBiasOffset = 0x94000;
+constexpr std::uint32_t Records = 13;
 constexpr std::size_t SrtOffset = 0x30000;
 constexpr std::size_t TableOffset = 0x30100;
 constexpr std::size_t KeysOffset = 0x30400;
@@ -96,6 +100,12 @@ alignas(256) constexpr std::array<std::uint32_t, 34> SampleDerivativeCode{
 std::array<std::uint32_t, 4> Sampler(std::uint32_t mag, std::uint32_t min, std::uint32_t mip) {
     constexpr std::uint32_t clampLastTexel = 2;
     return {clampLastTexel | (clampLastTexel << 3u) | (clampLastTexel << 6u), 0xfffu << 12u, (mag << 20u) | (min << 22u) | (mip << 26u), 0u};
+}
+
+std::array<std::uint32_t, 4> Sampler(std::uint32_t mag, std::uint32_t min, std::uint32_t mip, std::uint32_t minLod, std::uint32_t maxLod) {
+    auto words = Sampler(mag, min, mip);
+    words[1] = minLod | (maxLod << 12u);
+    return words;
 }
 
 std::array<std::uint32_t, 8> TextureWords(const void* base, std::uint32_t format, std::uint32_t width, std::uint32_t height, std::uint32_t swizzle, std::uint32_t lastLevel) {
@@ -256,6 +266,10 @@ void RunTests(AgcDriver::VulkanDevice& device) {
     GuestBlock block;
     auto* rgba8 = block.At<std::uint8_t>(Rgba8Offset);
     const auto* linear = reinterpret_cast<const std::uint8_t*>(GuestSampledTableData::Rgba8Linear.data());
+    const auto withMinLod = [](std::array<std::uint32_t, 8> words, std::uint32_t minLod) {
+        words[1] |= minLod << 8u;
+        return words;
+    };
     for (std::uint32_t y = 0; y < 68u; ++y) {
         for (std::uint32_t x = 0; x < 120u; ++x) std::memcpy(rgba8 + StandardOffset4(x, y), linear + (y * 120u + x) * 4u, 4u);
     }
@@ -266,6 +280,7 @@ void RunTests(AgcDriver::VulkanDevice& device) {
     std::memcpy(block.At<std::uint8_t>(Bc7DerivativeOffset), GuestSampledTableData::Bc7MipMemory.data(), sizeof(GuestSampledTableData::Bc7MipMemory));
     std::memcpy(block.At<std::uint8_t>(Bc7ImplicitOffset), GuestSampledTableData::Bc7MipMemory.data(), sizeof(GuestSampledTableData::Bc7MipMemory));
     std::memcpy(block.At<std::uint8_t>(Bc7BiasOffset), GuestSampledTableData::Bc7MipMemory.data(), sizeof(GuestSampledTableData::Bc7MipMemory));
+    for (const auto offset : {Bc7MinLodTrilinearOffset, Bc7MinLodPointOffset, Bc7MinLodBiasOffset}) std::memcpy(block.At<std::uint8_t>(offset), GuestSampledTableData::Bc7MipMemory.data(), sizeof(GuestSampledTableData::Bc7MipMemory));
     std::memcpy(block.At<std::uint8_t>(R16Offset), GuestSampledTableDerivativeData::R16Memory.data(), sizeof(GuestSampledTableDerivativeData::R16Memory));
     std::memcpy(block.At<std::uint8_t>(R32fOffset), GuestSampledTableDerivativeData::R32fMemory.data(), sizeof(GuestSampledTableDerivativeData::R32fMemory));
     constexpr std::uint32_t formatRgba8 = 56;
@@ -286,6 +301,9 @@ void RunTests(AgcDriver::VulkanDevice& device) {
         TextureWords(block.At<std::uint8_t>(Bc7DerivativeOffset), formatBc7, 128, 64, swizzle4KbS, 5),
         TextureWords(block.At<std::uint8_t>(Bc7ImplicitOffset), formatBc7, 128, 64, swizzle4KbS, 5),
         TextureWords(block.At<std::uint8_t>(Bc7BiasOffset), formatBc7, 128, 64, swizzle4KbS, 5),
+        withMinLod(TextureWords(block.At<std::uint8_t>(Bc7MinLodTrilinearOffset), formatBc7, 128, 64, swizzle4KbS, 5), 0x200u),
+        withMinLod(TextureWords(block.At<std::uint8_t>(Bc7MinLodPointOffset), formatBc7, 128, 64, swizzle4KbS, 5), 0x140u),
+        withMinLod(TextureWords(block.At<std::uint8_t>(Bc7MinLodBiasOffset), formatBc7, 128, 64, swizzle4KbS, 5), 0x180u),
     };
     auto* table = block.At<std::uint32_t>(TableOffset);
     for (std::size_t record = 0; record < records.size(); ++record) std::copy(records[record].begin(), records[record].end(), table + record * (Stride / 4u) + 4u);
@@ -297,6 +315,9 @@ void RunTests(AgcDriver::VulkanDevice& device) {
     RunCase(device, block, {"bc7-derivative", 7, Sampler(1, 1, 2), GuestSampledTableDerivativeData::Bc7DerivativeRows, GuestSampledTableDerivativeData::Bc7DerivativeTrilinear, 8});
     RunCase(device, block, {"bc7-implicit", 8, Sampler(1, 1, 2), GuestSampledTableImplicitData::Bc7ImplicitRows, GuestSampledTableImplicitData::Bc7ImplicitTrilinear, 4, SampleImplicitCode});
     RunCase(device, block, {"bc7-bias", 9, Sampler(1, 1, 2), GuestSampledTableImplicitData::Bc7BiasRows, GuestSampledTableImplicitData::Bc7BiasTrilinear, 4, SampleBiasCode});
+    RunCase(device, block, {"bc7-minlod/trilinear", 10, Sampler(1, 1, 2, 0u, 0x480u), GuestSampledTableMinLodData::Bc7MinLodRows, GuestSampledTableMinLodData::Bc7MinLodTrilinear});
+    RunCase(device, block, {"bc7-minlod/point", 11, Sampler(0, 0, 1, 0x60u, 0xfffu), GuestSampledTableMinLodData::Bc7MinLodRows, GuestSampledTableMinLodData::Bc7MinLodPoint});
+    RunCase(device, block, {"bc7-minlod/bias", 12, Sampler(1, 1, 2, 0x60u, 0x3c0u), GuestSampledTableMinLodData::Bc7MinLodBiasRows, GuestSampledTableMinLodData::Bc7MinLodBias, 4, SampleBiasCode});
     RunCase(device, block, {"bc7/point", 1, Sampler(0, 0, 0), Bc7PointRows, Bc7Point});
     RunCase(device, block, {"bc7-mips/point", 2, Sampler(0, 0, 1), Bc7MipRows, Bc7MipPoint});
     RunCase(device, block, {"rgba8/point", 3, Sampler(0, 0, 0), Rgba8Rows, Rgba8Point});

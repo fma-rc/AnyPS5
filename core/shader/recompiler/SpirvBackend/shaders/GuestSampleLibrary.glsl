@@ -817,7 +817,7 @@ uvec4 sampleGuest(uvec4 tlow, uvec4 thigh, uvec4 ssharp, uvec4 row, uvec4 deriva
     bool knownFormat = format == 7u || format == 22u || format == 56u || format == 169u || format == 170u || format == 175u || format == 177u || format == 179u || format == 181u || format == 182u;
     bool srgb = format == 170u || format == 182u;
     bool supported = knownFormat && type == 9u && (clampX == 0u || clampX == 2u) && (clampY == 0u || clampY == 2u) && magFilter == minFilter && magFilter <= 1u;
-    supported = supported && baseLevel == 0u && maxMip == lastLevel && textureMinLod == 0u && samplerMinLod == 0u && samplerMaxLod >= (lastLevel << 8);
+    supported = supported && baseLevel == 0u && maxMip == lastLevel && max(textureMinLod, samplerMinLod) <= (lastLevel << 8);
     supported = supported && (ssharp.x >> 9) == 0u && (ssharp.z & 0xfffffu) == 0u;
     supported = supported && (lastLevel == 0u || (clampX == 2u && clampY == 2u && (mipFilter == 1u || mipFilter == 2u)));
     if (!supported) {
@@ -845,6 +845,7 @@ uvec4 sampleGuest(uvec4 tlow, uvec4 thigh, uvec4 ssharp, uvec4 row, uvec4 deriva
         }
         quantizedLod = uint(roundEven(clamp(lod, 0.0, float(lastLevel)) * 256.0));
     }
+    quantizedLod = max(max(textureMinLod, samplerMinLod), min(quantizedLod, min(samplerMaxLod, lastLevel << 8)));
     uint firstLevel = 0u;
     uint fraction = 0u;
     if (mipFilter == 1u) {
