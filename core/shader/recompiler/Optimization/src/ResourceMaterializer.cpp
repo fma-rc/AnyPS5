@@ -1106,6 +1106,21 @@ std::uint32_t GuestCensusUnsupported(const std::array<std::uint32_t, 8>& image, 
     const bool single = format == 7u || format == 22u;
     const bool bc = format == 169u || format == 170u || format == 175u || format == 177u || format == 179u || format == 181u || format == 182u;
     if (!rgba8 && !single && !bc) return 4u;
+    static std::array<std::atomic<std::uint64_t>, 4096> detail{};
+    static std::atomic<std::int64_t> detailLast{0};
+    const auto noteDetail = [&](std::uint32_t key) {
+        detail[key & 4095u].fetch_add(1, std::memory_order_relaxed);
+        const auto now = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
+        auto seen = detailLast.load();
+        if (now - seen < 10000 || !detailLast.compare_exchange_strong(seen, now)) return;
+        std::string line = "[guest-census-detail]";
+        for (std::uint32_t k = 0; k < 4096u; ++k) if (const auto v = detail[k].load(); v != 0) { char b[48]; std::snprintf(b, sizeof b, " %x:%llu", k, static_cast<unsigned long long>(v)); line += b; }
+        std::fprintf(stderr, "%s\n", line.c_str());
+    };
+    if (type != 9u) noteDetail(0x500u | type);
+    else if (baseLevel != 0u) noteDetail(0x510u | baseLevel);
+    else if (maxMip != lastLevel) noteDetail(0x600u | (maxMip << 4u) | lastLevel);
+    else if (textureMinLod != 0u) noteDetail(0x520u);
     if (type != 9u || baseLevel != 0u || maxMip != lastLevel || textureMinLod != 0u) return 5u;
     if (rgba8 ? (swizzle != 0u && swizzle != 9u) || lastLevel != 0u : single ? swizzle != 0u && swizzle != 1u : swizzle != 0u && swizzle != 1u && swizzle != 5u && swizzle != 9u) return 6u;
     for (std::uint32_t channel = 0; channel < 4u; ++channel) {
@@ -1113,6 +1128,8 @@ std::uint32_t GuestCensusUnsupported(const std::array<std::uint32_t, 8>& image, 
         if (selector == 2u || selector == 3u) return 6u;
     }
     if (swizzle == 0u && image[4] != 0u) return 6u;
+    if ((clampX != 0u && clampX != 2u) || (clampY != 0u && clampY != 2u)) noteDetail(0x700u | (clampX << 4u) | clampY);
+    else if (magFilter != minFilter || magFilter > 1u) noteDetail(0x800u | (magFilter << 4u) | minFilter);
     if ((clampX != 0u && clampX != 2u) || (clampY != 0u && clampY != 2u) || magFilter != minFilter || magFilter > 1u) return 7u;
     if (samplerMinLod != 0u || samplerMaxLod < (lastLevel << 8u) || (sampler[0] >> 9u) != 0u || (sampler[2] & 0xfffffu) != 0u) return 8u;
     if (lastLevel != 0u && (clampX != 2u || clampY != 2u || (mipFilter != 1u && mipFilter != 2u))) return 9u;
