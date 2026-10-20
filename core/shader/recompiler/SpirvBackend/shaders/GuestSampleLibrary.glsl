@@ -36,6 +36,7 @@ const uint Bc7Weights4[16] = uint[](0u, 4u, 9u, 13u, 17u, 21u, 26u, 30u, 34u, 38
 const uint Bc7Modes[8] = uint[](0x03104043u, 0x03206062u, 0x02005063u, 0x02107062u, 0x32065601u, 0x22087201u, 0x04177001u, 0x02155062u);
 
 bool faulted = false;
+uint tapShift = 0u;
 
 uint standardOffset4(uint x, uint y) {
     uint o = ((y << 4) & 0x070u) ^ ((y << 5) & 0x100u) ^ ((y << 6) & 0x400u) ^ ((x << 2) & 0x00cu) ^ ((x << 5) & 0x080u) ^ ((x << 6) & 0x200u) ^ ((x << 7) & 0x800u);
@@ -525,14 +526,14 @@ uint unorm16FilteredToFloat(uint64_t r) {
     return fixedToFloatTiesAway(((r << 8) & ~uint64_t(7)) + ((r >> 8) & ~uint64_t(7)) + ((r >> 24) & ~uint64_t(7)), 37);
 }
 
-uint srgbAlphaFilter(uint texels[8], uint tapWeights[8], uint tapLevels[8], uint tapCount, uint levelWeights[2]) {
+uint srgbAlphaFilter(uint texels[16], uint tapWeights[16], uint tapLevels[16], uint tapCount, uint levelWeights[2]) {
     uint64_t levelSums[2] = uint64_t[](uint64_t(0), uint64_t(0));
     for (uint i = 0u; i < tapCount; ++i) levelSums[tapLevels[i]] += uint64_t(texels[i] * 257u) * uint64_t(tapWeights[i]);
     uint64_t blended = RoundU64(levelSums[0] * uint64_t(levelWeights[0]), 5) + RoundU64(levelSums[1] * uint64_t(levelWeights[1]), 5);
     return unorm16FilteredToFloat(RoundU64(blended, 6));
 }
 
-uint unorm16Filter(uint texels[8], uint tapWeights[8], uint tapCount) {
+uint unorm16Filter(uint texels[16], uint tapWeights[16], uint tapCount) {
     uint64_t sum = uint64_t(0);
     for (uint i = 0u; i < tapCount; ++i) sum += uint64_t(texels[i]) * uint64_t(tapWeights[i]);
     return unorm16FilteredToFloat(RoundU64(sum, 3));
@@ -545,14 +546,14 @@ uint float32Point(uint value) {
     return value;
 }
 
-uint unormFilter(uint texels[8], uint tapWeights[8], uint tapLevels[8], uint tapCount, uint levelWeights[2]) {
+uint unormFilter(uint texels[16], uint tapWeights[16], uint tapLevels[16], uint tapCount, uint levelWeights[2]) {
     uint64_t levelSums[2] = uint64_t[](uint64_t(0), uint64_t(0));
     for (uint i = 0u; i < tapCount; ++i) levelSums[tapLevels[i]] += uint64_t(texels[i] * tapWeights[i]);
     uint64_t blended = RoundU64(levelSums[0] * uint64_t(levelWeights[0]), 5) + RoundU64(levelSums[1] * uint64_t(levelWeights[1]), 5);
-    return unormFilteredToFloat(uint(RoundU64(blended, 6)));
+    return unormFilteredToFloat(uint(tapShift != 0u ? (blended + uint64_t(32)) >> 7 : RoundU64(blended, 6)));
 }
 
-uint bc45Filter(uint texels[8], uint tapWeights[8], uint tapLevels[8], uint tapCount, uint levelWeights[2]) {
+uint bc45Filter(uint texels[16], uint tapWeights[16], uint tapLevels[16], uint tapCount, uint levelWeights[2]) {
     uint64_t sum = uint64_t(0);
     for (uint i = 0u; i < tapCount; ++i) sum += uint64_t(texels[i]) * uint64_t(tapWeights[i]) * uint64_t(levelWeights[tapLevels[i]]);
     return unormFilteredToFloat(uint((sum + uint64_t(256)) >> 17));
@@ -601,7 +602,7 @@ uint roundFilterSum(uint64_t high, uint64_t low, bool negative, int unitExponent
     return (negative ? 0x80000000u : 0u) | (uint(exponent + 127) << 23) | (uint(mantissa) & 0x7fffffu);
 }
 
-uint float32Filter(uint values[8], uint weights[8], uint tapCount, bool singleTexel) {
+uint float32Filter(uint values[16], uint weights[16], uint tapCount, bool singleTexel) {
     int largest = -1000;
     bool allNegativeZero = true;
     for (uint i = 0u; i < tapCount; ++i) {
@@ -633,7 +634,7 @@ uint float32Filter(uint values[8], uint weights[8], uint tapCount, bool singleTe
     return roundFilterSum(uint64_t(0), magnitude, negative, largest - 39 - int(Float32GridBits));
 }
 
-uint floatFilter(uint values[8], uint weights[8], uint tapLevels[8], uint tapCount) {
+uint floatFilter(uint values[16], uint weights[16], uint tapLevels[16], uint tapCount) {
     int largest[2] = int[](-1000, -1000);
     bool allNegativeZero = true;
     for (uint i = 0u; i < tapCount; ++i) {
@@ -787,9 +788,141 @@ uint derivativeLod(uvec4 derivatives, uint width, uint height, uint lastLevel, i
     return uint(clamp(256 * scale + int(entry) + bias, 0, int(lastLevel) * 256));
 }
 
+bool derivativeProducts(uvec4 derivatives, uint width, uint height, out int products[4], out int scale) {
+    uint mantissas[4];
+    int exponents[4];
+    bool present[4];
+    for (uint i = 0u; i < 4u; ++i) {
+        products[i] = 0;
+        present[i] = decodeDerivative(derivatives[i], mantissas[i], exponents[i]);
+    }
+    scale = AbsentExponent;
+    if (faulted) return false;
+    int sizeLog2[2];
+    int sizeSignificands[2] = int[](sizeSignificand(width, sizeLog2[0]), sizeSignificand(height, sizeLog2[1]));
+    int pairExponents[2] = int[](AbsentExponent, AbsentExponent);
+    for (uint i = 0u; i < 4u; ++i) {
+        if (present[i]) pairExponents[i & 1u] = max(pairExponents[i & 1u], exponents[i]);
+    }
+    int pairScales[2];
+    for (uint pair = 0u; pair < 2u; ++pair) pairScales[pair] = pairExponents[pair] == AbsentExponent ? AbsentExponent : pairExponents[pair] + sizeLog2[pair];
+    scale = max(pairScales[0], pairScales[1]);
+    if (scale == AbsentExponent) return false;
+    for (uint i = 0u; i < 4u; ++i) {
+        if (!present[i]) continue;
+        uint pair = i & 1u;
+        int aligned = alignDerivative(derivatives[i], mantissas[i], 13 + pairExponents[pair] - exponents[i]);
+        int product = (aligned * sizeSignificands[pair] + 512) >> 10;
+        products[i] = roundSignedHalfUp(product, scale - pairScales[pair]);
+    }
+    return true;
+}
+
+int lodOfLength(uint t, int scale) {
+    int shift = 0;
+    while (t < 2048u) {
+        t <<= 1;
+        shift += 1;
+    }
+    while (t >= 16384u) {
+        t >>= 1;
+        shift -= 1;
+    }
+    t = (t >> 1) << 1;
+    uint entry = (DerivativeLodByT[(t - 2048u) >> 2] >> (((t >> 1) & 1u) * 16u)) & 0xffffu;
+    if (entry == 0xffffu) faulted = true;
+    return 256 * (scale - shift) + int(entry);
+}
+
+int halfUpShift(int value, int shift) {
+    return (value + (1 << (shift - 1))) >> shift;
+}
+
+int roundedShift(int value, int shift, bool down) {
+    return down ? -((-value + (1 << (shift - 1))) >> shift) : halfUpShift(value, shift);
+}
+
+int anisoReciprocal(uint length) {
+    uint index = length - 1024u;
+    return int((AnisoReciprocal[index >> 1] >> ((index & 1u) * 16u)) & 0xffffu);
+}
+
+ivec2 scaledUnit(ivec2 z, int reciprocal, int shift, bool down) {
+    return ivec2(halfUpShift(z.x * reciprocal, shift), roundedShift(z.y * reciprocal, shift, down));
+}
+
+ivec2 halvedUnit(ivec2 u, int shift, bool down) {
+    return ivec2(halfUpShift(u.x, shift), roundedShift(u.y, shift, down));
+}
+
+ivec2 shortUnit(ivec2 z, uint length, bool down) {
+    if (length < 512u) return scaledUnit(z, anisoReciprocal(4u * length), 10, down);
+    return scaledUnit(z, anisoReciprocal(2u * length), 10, down);
+}
+
+ivec2 shortPairLongUnit(ivec2 z, uint length, uint shift, bool down) {
+    if (length >= 2048u) return halvedUnit(scaledUnit(z, anisoReciprocal(length >> 1), 10, down), int(shift) + 1, down);
+    return halvedUnit(scaledUnit(z, anisoReciprocal(length), 10, down), int(shift), down);
+}
+
+uint polygonRaw(int x, int y) {
+    int major = max(abs(x), abs(y));
+    int minor = min(abs(x), abs(y));
+    int best = 0;
+    for (uint i = 0u; i < 5u; ++i) best = max(best, LengthLines[i].x * major + LengthLines[i].y * minor);
+    return uint(best);
+}
+
+uint truncateMantissa11(uint value) {
+    if (value == 0u) return 0u;
+    int top = findMSB(value);
+    return top > 10 ? value & ~((1u << uint(top - 10)) - 1u) : value;
+}
+
+uvec2 anisoTapVector(ivec2 z1, ivec2 z2, uint length1, uint length2) {
+    if (min(length1, length2) < 256u || max(length1, length2) >= 4096u) {
+        faulted = true;
+        return uvec2(0u);
+    }
+    ivec2 n1;
+    ivec2 n2;
+    if (min(length1, length2) < 1024u) {
+        uint shift = min(length1, length2) < 512u ? 2u : 1u;
+        n1 = length1 < 1024u ? shortUnit(z1, length1, true) : shortPairLongUnit(z1, length1, shift, true);
+        n2 = length2 < 1024u ? shortUnit(z2, length2, false) : shortPairLongUnit(z2, length2, shift, false);
+        uint factor = 2u << shift;
+        return uvec2(factor * polygonLength(n1.x + n2.x, n1.y - n2.y), factor * polygonLength(n1.x - n2.x, n1.y + n2.y));
+    }
+    bool long1 = length1 >= 2048u;
+    bool long2 = length2 >= 2048u;
+    if (long1 && long2) {
+        n1 = scaledUnit(z1, anisoReciprocal(length1 >> 1), 10, true);
+        n2 = scaledUnit(z2, anisoReciprocal(length2 >> 1), 10, false);
+        return uvec2(truncateMantissa11((polygonRaw(n1.x + n2.x, n1.y - n2.y) + 512u) >> 10), truncateMantissa11((polygonRaw(n1.x - n2.x, n1.y + n2.y) + 512u) >> 10));
+    }
+    n1 = long1 ? halvedUnit(scaledUnit(z1, anisoReciprocal(length1 >> 1), 10, true), 1, true) : scaledUnit(z1, anisoReciprocal(length1), 10, true);
+    n2 = long2 ? halvedUnit(scaledUnit(z2, anisoReciprocal(length2 >> 1), 10, false), 1, false) : scaledUnit(z2, anisoReciprocal(length2), 10, false);
+    return uvec2(2u * polygonLength(n1.x + n2.x, n1.y - n2.y), 2u * polygonLength(n1.x - n2.x, n1.y + n2.y));
+}
+
+ivec2 levelZeroCoordinate(uint bits, uint size) {
+    uint exponent = (bits >> 23) & 0xffu;
+    if (exponent == 0u) return unpackInt2x32(int64_t(0));
+    int64_t mantissa = int64_t((bits & 0x7fffffu) | 0x800000u) * int64_t(size);
+    if ((bits & 0x80000000u) != 0u) mantissa = -mantissa;
+    int shift = 134 - int(exponent);
+    if (shift <= 0) return unpackInt2x32(mantissa << uint(-shift));
+    return roundHalfEvenShift(mantissa, uint(shift));
+}
+
+uint anisoScale(uint table[64], uint index) {
+    return (table[index >> 2] >> ((index & 3u) * 8u)) & 0xffu;
+}
+
 uvec4 sampleGuest(uvec4 tlow, uvec4 thigh, uvec4 ssharp, uvec4 row, uvec4 derivatives, uvec4 memory, out uint fault) {
     faulted = false;
     guestOutside = false;
+    tapShift = 0u;
     fault = 1u;
     uint64_t base = (uint64_t(tlow.x) | (uint64_t(tlow.y & 0xffu) << 32)) << 8;
     guestOrigin = base;
@@ -809,6 +942,7 @@ uvec4 sampleGuest(uvec4 tlow, uvec4 thigh, uvec4 ssharp, uvec4 row, uvec4 deriva
     uint textureMinLod = (t1 >> 8) & 0xfffu;
     uint clampX = ssharp.x & 7u;
     uint clampY = (ssharp.x >> 3) & 7u;
+    uint anisoRatio = (ssharp.x >> 9) & 7u;
     uint samplerMinLod = ssharp.y & 0xfffu;
     uint samplerMaxLod = (ssharp.y >> 12) & 0xfffu;
     uint magFilter = (ssharp.z >> 20) & 3u;
@@ -816,10 +950,18 @@ uvec4 sampleGuest(uvec4 tlow, uvec4 thigh, uvec4 ssharp, uvec4 row, uvec4 deriva
     uint mipFilter = (ssharp.z >> 26) & 3u;
     bool knownFormat = format == 7u || format == 22u || format == 56u || format == 169u || format == 170u || format == 175u || format == 177u || format == 179u || format == 181u || format == 182u;
     bool srgb = format == 170u || format == 182u;
-    bool supported = knownFormat && type == 9u && (clampX == 0u || clampX == 2u) && (clampY == 0u || clampY == 2u) && magFilter == minFilter && magFilter <= 1u;
+    bool anisoTaps = magFilter == 3u && minFilter == 3u && anisoRatio == 1u;
+    bool supported = knownFormat && type == 9u && (clampX == 0u || clampX == 2u) && (clampY == 0u || clampY == 2u);
+    supported = supported && (anisoTaps || (magFilter == minFilter && magFilter <= 1u && anisoRatio <= 1u));
     supported = supported && baseLevel == 0u && maxMip == lastLevel && max(textureMinLod, samplerMinLod) <= (lastLevel << 8);
-    supported = supported && (ssharp.x >> 9) == 0u && (ssharp.z & 0xfffffu) == 0u;
+    uint anisoThreshold = (ssharp.x >> 16) & 7u;
+    supported = supported && ((ssharp.x >> 12) & ~0x70u) == 0u && (anisoThreshold == 0u || anisoThreshold == 7u) && (ssharp.z & 0xfffffu) == 0u;
     supported = supported && (lastLevel == 0u || (clampX == 2u && clampY == 2u && (mipFilter == 1u || mipFilter == 2u)));
+    if (anisoTaps) {
+        bool unormFormat = format == 169u || format == 181u;
+        supported = supported && unormFormat && row.w == 1u && lastLevel != 0u && textureMinLod == 0u && samplerMinLod == 0u && samplerMaxLod >= (lastLevel << 8);
+        supported = supported && bitCount(width) == 1u && bitCount(height) == 1u;
+    }
     if (!supported) {
         return uvec4(0u);
     }
@@ -831,7 +973,32 @@ uvec4 sampleGuest(uvec4 tlow, uvec4 thigh, uvec4 ssharp, uvec4 row, uvec4 deriva
         bias = int(roundEven(value * 256.0));
     }
     uint quantizedLod;
-    if (row.w != 0u && lastLevel == 0u) {
+    int tapLod = 0;
+    uvec2 tapVector = uvec2(0u);
+    int tapExponent = 0;
+    bool tapSignPositive = true;
+    if (anisoTaps) {
+        int products[4];
+        int scale;
+        if (!derivativeProducts(derivatives, width, height, products, scale) || faulted) return uvec4(0u);
+        ivec2 z1 = ivec2(products[0] + products[3], products[1] - products[2]);
+        ivec2 z2 = ivec2(products[0] - products[3], products[1] + products[2]);
+        uint length1 = polygonLength(z1.x, z1.y);
+        uint length2 = polygonLength(z2.x, z2.y);
+        int lmax = lodOfLength(length1 + length2, scale);
+        uint gap = (uint(abs(int(length1) - int(length2))) >> 1) << 1;
+        int lmin = gap == 0u ? 0 : max(lodOfLength(gap, scale), 0);
+        if (faulted) return uvec4(0u);
+        quantizedLod = uint(clamp(max(lmax - 256, lmin), 0, int(lastLevel) * 256));
+        tapLod = max(max(lmax - 256, lmin), 0);
+        if (lmax > lmin) {
+            tapVector = anisoTapVector(z1, z2, length1, length2);
+            tapExponent = findMSB(uint(min(lmax - lmin, 128)));
+            if (faulted) return uvec4(0u);
+        }
+        tapSignPositive = products[0] * products[1] + products[2] * products[3] > 0;
+        tapShift = 1u;
+    } else if (row.w != 0u && lastLevel == 0u) {
         quantizedLod = 0u;
     } else if (row.w != 0u) {
         quantizedLod = derivativeLod(derivatives, width, height, lastLevel, bias);
@@ -861,15 +1028,58 @@ uvec4 sampleGuest(uvec4 tlow, uvec4 thigh, uvec4 ssharp, uvec4 row, uvec4 deriva
     if ((format == 22u || format == 7u) && fraction != 0u) {
         return uvec4(0u);
     }
+    uvec2 tapNumerator = uvec2(0u);
+    if (anisoTaps) {
+        int scaleIndex = (tapLod & ~3) - 256 * int(firstLevel);
+        int scaleLevels = mipFilter == 1u ? (scaleIndex + 128) >> 8 : scaleIndex >> 8;
+        uint scaleFraction = uint(scaleIndex - 256 * scaleLevels);
+        uint tapScale = (mipFilter == 1u ? anisoScale(AnisoPointScale, (scaleFraction + 128u) & 255u) : 128u + anisoScale(AnisoTrilinearScale, scaleFraction)) << uint(scaleLevels);
+        tapNumerator = uvec2(truncateMantissa11(tapVector.x * tapScale), truncateMantissa11(tapVector.y * tapScale));
+    }
     uint levelWeights[2] = uint[](256u - fraction, fraction);
     uint levelSlots = fraction != 0u ? 2u : 1u;
-    uvec4 tapTexels[8];
+    uvec4 tapTexels[16];
     bool singleTexel = true;
-    uint tapWeights[8];
-    uint tapLevels[8];
+    uint tapWeights[16];
+    uint tapLevels[16];
     uint tapCount = 0u;
     for (uint slot = 0u; slot < levelSlots; ++slot) {
         Level level = levelLayout(width, height, lastLevel + 1u, swizzle, bytesPerElementOf(format), firstLevel + slot);
+        if (anisoTaps) {
+            uint levelIndex = firstLevel + slot;
+            int64_t centreX = (packInt2x32(levelZeroCoordinate(row.x, width)) << (16u - levelIndex)) - (int64_t(128) << 24);
+            int64_t centreY = (packInt2x32(levelZeroCoordinate(row.y, height)) << (16u - levelIndex)) - (int64_t(128) << 24);
+            uint offsetShift = uint(5 + tapExponent) - slot;
+            int64_t offsetX = int64_t(tapNumerator.x) << offsetShift;
+            int64_t offsetY = int64_t(tapNumerator.y) << offsetShift;
+            if (!tapSignPositive) offsetY = -offsetY;
+            for (uint side = 0u; side < 2u; ++side) {
+                int64_t fx = (side == 0u ? centreX + offsetX : centreX - offsetX) + (int64_t(1) << 23);
+                int64_t fy = (side == 0u ? centreY + offsetY : centreY - offsetY) + (int64_t(1) << 23);
+                fx >>= 24;
+                fy >>= 24;
+                int x0 = int(fx >> 8);
+                int y0 = int(fy >> 8);
+                uint wx = uint(fx & int64_t(255));
+                uint wy = uint(fy & int64_t(255));
+                int xa = wrapIndex(x0, int(level.width), clampX);
+                int xb = wrapIndex(x0 + 1, int(level.width), clampX);
+                int ya = wrapIndex(y0, int(level.height), clampY);
+                int yb = wrapIndex(y0 + 1, int(level.height), clampY);
+                tapTexels[tapCount] = fetchTexel(base, xa, ya, format, level, swizzle);
+                tapTexels[tapCount + 1u] = fetchTexel(base, xb, ya, format, level, swizzle);
+                tapTexels[tapCount + 2u] = fetchTexel(base, xa, yb, format, level, swizzle);
+                tapTexels[tapCount + 3u] = fetchTexel(base, xb, yb, format, level, swizzle);
+                tapWeights[tapCount] = (256u - wx) * (256u - wy);
+                tapWeights[tapCount + 1u] = wx * (256u - wy);
+                tapWeights[tapCount + 2u] = (256u - wx) * wy;
+                tapWeights[tapCount + 3u] = wx * wy;
+                for (uint i = 0u; i < 4u; ++i) tapLevels[tapCount + i] = slot;
+                tapCount += 4u;
+            }
+            singleTexel = false;
+            continue;
+        }
         int64_t fx = packInt2x32(fixedTexelCoordinate(row.x, level.width));
         int64_t fy = packInt2x32(fixedTexelCoordinate(row.y, level.height));
         if (magFilter == 0u) {
@@ -905,8 +1115,8 @@ uvec4 sampleGuest(uvec4 tlow, uvec4 thigh, uvec4 ssharp, uvec4 row, uvec4 deriva
     }
     uvec4 value;
     for (uint c = 0u; c < 4u; ++c) {
-        uint texels[8];
-        for (uint i = 0u; i < 8u; ++i) texels[i] = i < tapCount ? tapTexels[i][c] : 0u;
+        uint texels[16];
+        for (uint i = 0u; i < 16u; ++i) texels[i] = i < tapCount ? tapTexels[i][c] : 0u;
         if (format == 22u && magFilter == 0u) {
             value[c] = float32Point(texels[0]);
         } else if (format == 7u) {
@@ -914,17 +1124,17 @@ uvec4 sampleGuest(uvec4 tlow, uvec4 thigh, uvec4 ssharp, uvec4 row, uvec4 deriva
         } else if (format == 22u) {
             value[c] = float32Filter(texels, tapWeights, tapCount, singleTexel);
         } else if (format == 179u) {
-            uint values[8];
-            uint weights[8];
-            for (uint i = 0u; i < 8u; ++i) {
+            uint values[16];
+            uint weights[16];
+            for (uint i = 0u; i < 16u; ++i) {
                 values[i] = i < tapCount ? texels[i] : 0u;
                 weights[i] = i < tapCount ? tapWeights[i] * levelWeights[tapLevels[i]] : 0u;
             }
             value[c] = floatFilter(values, weights, tapLevels, tapCount);
         } else if (srgb && c < 3u) {
-            uint values[8];
-            uint weights[8];
-            for (uint i = 0u; i < 8u; ++i) {
+            uint values[16];
+            uint weights[16];
+            for (uint i = 0u; i < 16u; ++i) {
                 values[i] = i < tapCount ? SrgbToLinear[texels[i]] : 0u;
                 weights[i] = i < tapCount ? tapWeights[i] * levelWeights[tapLevels[i]] : 0u;
             }
