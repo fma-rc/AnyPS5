@@ -36,7 +36,6 @@ const uint Bc7Weights4[16] = uint[](0u, 4u, 9u, 13u, 17u, 21u, 26u, 30u, 34u, 38
 const uint Bc7Modes[8] = uint[](0x03104043u, 0x03206062u, 0x02005063u, 0x02107062u, 0x32065601u, 0x22087201u, 0x04177001u, 0x02155062u);
 
 bool faulted = false;
-uint tapShift = 0u;
 
 uint standardOffset4(uint x, uint y) {
     uint o = ((y << 4) & 0x070u) ^ ((y << 5) & 0x100u) ^ ((y << 6) & 0x400u) ^ ((x << 2) & 0x00cu) ^ ((x << 5) & 0x080u) ^ ((x << 6) & 0x200u) ^ ((x << 7) & 0x800u);
@@ -526,14 +525,14 @@ uint unorm16FilteredToFloat(uint64_t r) {
     return fixedToFloatTiesAway(((r << 8) & ~uint64_t(7)) + ((r >> 8) & ~uint64_t(7)) + ((r >> 24) & ~uint64_t(7)), 37);
 }
 
-uint srgbAlphaFilter(uint texels[16], uint tapWeights[16], uint tapLevels[16], uint tapCount, uint levelWeights[2]) {
+uint srgbAlphaFilter(uint texels[8], uint tapWeights[8], uint tapLevels[8], uint tapCount, uint levelWeights[2]) {
     uint64_t levelSums[2] = uint64_t[](uint64_t(0), uint64_t(0));
     for (uint i = 0u; i < tapCount; ++i) levelSums[tapLevels[i]] += uint64_t(texels[i] * 257u) * uint64_t(tapWeights[i]);
     uint64_t blended = RoundU64(levelSums[0] * uint64_t(levelWeights[0]), 5) + RoundU64(levelSums[1] * uint64_t(levelWeights[1]), 5);
     return unorm16FilteredToFloat(RoundU64(blended, 6));
 }
 
-uint unorm16Filter(uint texels[16], uint tapWeights[16], uint tapCount) {
+uint unorm16Filter(uint texels[8], uint tapWeights[8], uint tapCount) {
     uint64_t sum = uint64_t(0);
     for (uint i = 0u; i < tapCount; ++i) sum += uint64_t(texels[i]) * uint64_t(tapWeights[i]);
     return unorm16FilteredToFloat(RoundU64(sum, 3));
@@ -546,14 +545,14 @@ uint float32Point(uint value) {
     return value;
 }
 
-uint unormFilter(uint texels[16], uint tapWeights[16], uint tapLevels[16], uint tapCount, uint levelWeights[2]) {
+uint unormFilter(uint texels[8], uint tapWeights[8], uint tapLevels[8], uint tapCount, uint levelWeights[2]) {
     uint64_t levelSums[2] = uint64_t[](uint64_t(0), uint64_t(0));
     for (uint i = 0u; i < tapCount; ++i) levelSums[tapLevels[i]] += uint64_t(texels[i] * tapWeights[i]);
     uint64_t blended = RoundU64(levelSums[0] * uint64_t(levelWeights[0]), 5) + RoundU64(levelSums[1] * uint64_t(levelWeights[1]), 5);
-    return unormFilteredToFloat(uint(tapShift != 0u ? (blended + uint64_t(32)) >> 7 : RoundU64(blended, 6)));
+    return unormFilteredToFloat(uint(RoundU64(blended, 6)));
 }
 
-uint bc45Filter(uint texels[16], uint tapWeights[16], uint tapLevels[16], uint tapCount, uint levelWeights[2]) {
+uint bc45Filter(uint texels[8], uint tapWeights[8], uint tapLevels[8], uint tapCount, uint levelWeights[2]) {
     uint64_t sum = uint64_t(0);
     for (uint i = 0u; i < tapCount; ++i) sum += uint64_t(texels[i]) * uint64_t(tapWeights[i]) * uint64_t(levelWeights[tapLevels[i]]);
     return unormFilteredToFloat(uint((sum + uint64_t(256)) >> 17));
@@ -602,7 +601,7 @@ uint roundFilterSum(uint64_t high, uint64_t low, bool negative, int unitExponent
     return (negative ? 0x80000000u : 0u) | (uint(exponent + 127) << 23) | (uint(mantissa) & 0x7fffffu);
 }
 
-uint float32Filter(uint values[16], uint weights[16], uint tapCount, bool singleTexel) {
+uint float32Filter(uint values[8], uint weights[8], uint tapCount, bool singleTexel) {
     int largest = -1000;
     bool allNegativeZero = true;
     for (uint i = 0u; i < tapCount; ++i) {
@@ -634,7 +633,7 @@ uint float32Filter(uint values[16], uint weights[16], uint tapCount, bool single
     return roundFilterSum(uint64_t(0), magnitude, negative, largest - 39 - int(Float32GridBits));
 }
 
-uint floatFilter(uint values[16], uint weights[16], uint tapLevels[16], uint tapCount) {
+uint floatFilter(uint values[8], uint weights[8], uint tapLevels[8], uint tapCount) {
     int largest[2] = int[](-1000, -1000);
     bool allNegativeZero = true;
     for (uint i = 0u; i < tapCount; ++i) {
@@ -922,7 +921,6 @@ uint anisoScale(uint table[64], uint index) {
 uvec4 sampleGuest(uvec4 tlow, uvec4 thigh, uvec4 ssharp, uvec4 row, uvec4 derivatives, uvec4 memory, out uint fault) {
     faulted = false;
     guestOutside = false;
-    tapShift = 0u;
     fault = 1u;
     uint64_t base = (uint64_t(tlow.x) | (uint64_t(tlow.y & 0xffu) << 32)) << 8;
     guestOrigin = base;
@@ -997,7 +995,6 @@ uvec4 sampleGuest(uvec4 tlow, uvec4 thigh, uvec4 ssharp, uvec4 row, uvec4 deriva
             if (faulted) return uvec4(0u);
         }
         tapSignPositive = products[0] * products[1] + products[2] * products[3] > 0;
-        tapShift = 1u;
     } else if (row.w != 0u && lastLevel == 0u) {
         quantizedLod = 0u;
     } else if (row.w != 0u) {
@@ -1038,11 +1035,12 @@ uvec4 sampleGuest(uvec4 tlow, uvec4 thigh, uvec4 ssharp, uvec4 row, uvec4 deriva
     }
     uint levelWeights[2] = uint[](256u - fraction, fraction);
     uint levelSlots = fraction != 0u ? 2u : 1u;
-    uvec4 tapTexels[16];
+    uvec4 tapTexels[8];
     bool singleTexel = true;
-    uint tapWeights[16];
-    uint tapLevels[16];
+    uint tapWeights[8];
+    uint tapLevels[8];
     uint tapCount = 0u;
+    uvec4 anisoSums[2] = uvec4[](uvec4(0u), uvec4(0u));
     for (uint slot = 0u; slot < levelSlots; ++slot) {
         Level level = levelLayout(width, height, lastLevel + 1u, swizzle, bytesPerElementOf(format), firstLevel + slot);
         if (anisoTaps) {
@@ -1066,18 +1064,11 @@ uvec4 sampleGuest(uvec4 tlow, uvec4 thigh, uvec4 ssharp, uvec4 row, uvec4 deriva
                 int xb = wrapIndex(x0 + 1, int(level.width), clampX);
                 int ya = wrapIndex(y0, int(level.height), clampY);
                 int yb = wrapIndex(y0 + 1, int(level.height), clampY);
-                tapTexels[tapCount] = fetchTexel(base, xa, ya, format, level, swizzle);
-                tapTexels[tapCount + 1u] = fetchTexel(base, xb, ya, format, level, swizzle);
-                tapTexels[tapCount + 2u] = fetchTexel(base, xa, yb, format, level, swizzle);
-                tapTexels[tapCount + 3u] = fetchTexel(base, xb, yb, format, level, swizzle);
-                tapWeights[tapCount] = (256u - wx) * (256u - wy);
-                tapWeights[tapCount + 1u] = wx * (256u - wy);
-                tapWeights[tapCount + 2u] = (256u - wx) * wy;
-                tapWeights[tapCount + 3u] = wx * wy;
-                for (uint i = 0u; i < 4u; ++i) tapLevels[tapCount + i] = slot;
-                tapCount += 4u;
+                anisoSums[slot] += fetchTexel(base, xa, ya, format, level, swizzle) * ((256u - wx) * (256u - wy));
+                anisoSums[slot] += fetchTexel(base, xb, ya, format, level, swizzle) * (wx * (256u - wy));
+                anisoSums[slot] += fetchTexel(base, xa, yb, format, level, swizzle) * ((256u - wx) * wy);
+                anisoSums[slot] += fetchTexel(base, xb, yb, format, level, swizzle) * (wx * wy);
             }
-            singleTexel = false;
             continue;
         }
         int64_t fx = packInt2x32(fixedTexelCoordinate(row.x, level.width));
@@ -1115,8 +1106,13 @@ uvec4 sampleGuest(uvec4 tlow, uvec4 thigh, uvec4 ssharp, uvec4 row, uvec4 deriva
     }
     uvec4 value;
     for (uint c = 0u; c < 4u; ++c) {
-        uint texels[16];
-        for (uint i = 0u; i < 16u; ++i) texels[i] = i < tapCount ? tapTexels[i][c] : 0u;
+        if (anisoTaps) {
+            uint64_t blended = RoundU64(uint64_t(anisoSums[0][c]) * uint64_t(levelWeights[0]), 5) + RoundU64(uint64_t(anisoSums[1][c]) * uint64_t(levelWeights[1]), 5);
+            value[c] = unormFilteredToFloat(uint((blended + uint64_t(32)) >> 7));
+            continue;
+        }
+        uint texels[8];
+        for (uint i = 0u; i < 8u; ++i) texels[i] = i < tapCount ? tapTexels[i][c] : 0u;
         if (format == 22u && magFilter == 0u) {
             value[c] = float32Point(texels[0]);
         } else if (format == 7u) {
@@ -1124,17 +1120,17 @@ uvec4 sampleGuest(uvec4 tlow, uvec4 thigh, uvec4 ssharp, uvec4 row, uvec4 deriva
         } else if (format == 22u) {
             value[c] = float32Filter(texels, tapWeights, tapCount, singleTexel);
         } else if (format == 179u) {
-            uint values[16];
-            uint weights[16];
-            for (uint i = 0u; i < 16u; ++i) {
+            uint values[8];
+            uint weights[8];
+            for (uint i = 0u; i < 8u; ++i) {
                 values[i] = i < tapCount ? texels[i] : 0u;
                 weights[i] = i < tapCount ? tapWeights[i] * levelWeights[tapLevels[i]] : 0u;
             }
             value[c] = floatFilter(values, weights, tapLevels, tapCount);
         } else if (srgb && c < 3u) {
-            uint values[16];
-            uint weights[16];
-            for (uint i = 0u; i < 16u; ++i) {
+            uint values[8];
+            uint weights[8];
+            for (uint i = 0u; i < 8u; ++i) {
                 values[i] = i < tapCount ? SrgbToLinear[texels[i]] : 0u;
                 weights[i] = i < tapCount ? tapWeights[i] * levelWeights[tapLevels[i]] : 0u;
             }
