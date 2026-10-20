@@ -380,6 +380,7 @@ void RunTests(AgcDriver::VulkanDevice& device) {
     RunCase(device, block, {"bc1-aniso/trilinear", 19, AnisoSampler(3, 3, 2), Formats::AnisoFormatsRows, Formats::Bc1AnisoTrilinear, 8});
     RunCase(device, block, {"bc1-srgb-aniso/trilinear", 20, AnisoSampler(3, 3, 2), Formats::AnisoFormatsRows, Formats::Bc1SrgbAnisoTrilinear, 8});
     RunCase(device, block, {"bc1-srgb-aniso/point", 21, AnisoSampler(3, 3, 1), Formats::AnisoFormatsRows, Formats::Bc1SrgbAnisoPoint, 8});
+    RunCase(device, block, {"bc4-aniso/trilinear", 22, AnisoSampler(3, 3, 2), Formats::AnisoFormatsRows, Formats::Bc4AnisoTrilinear, 8});
     RunCase(device, block, {"bc7-srgb-aniso/one-level", 24, AnisoSampler(3, 3, 2), Formats::AnisoFormatsRows, Formats::Bc7SrgbAnisoOneLevel, 8});
     RunCase(device, block, {"bc7-aniso/minlod", 26, AnisoSampler(3, 3, 2), Formats::AnisoFormatsRows, Formats::Bc7AnisoMinLodHalf, 8});
     RunCase(device, block, {"bc7-aniso/bias", 27, AnisoSampler(3, 3, 2, 0x80u), Formats::AnisoFormatsRows, Formats::Bc7AnisoBiasHalf, 8});

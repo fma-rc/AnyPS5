@@ -1010,7 +1010,7 @@ uvec4 sampleGuest(uvec4 tlow, uvec4 thigh, uvec4 ssharp, uvec4 row, uvec4 deriva
     supported = supported && ((ssharp.x >> 12) & ~0x70u) == 0u && (anisoThreshold == 0u || anisoThreshold == 7u) && (ssharp.z & (anisoTaps ? 0xfc000u : 0xfffffu)) == 0u;
     supported = supported && (lastLevel == 0u || (clampX == 2u && clampY == 2u && (mipFilter == 1u || mipFilter == 2u)));
     if (anisoTaps) {
-        bool anisoFormat = format == 169u || format == 170u || format == 181u || format == 182u;
+        bool anisoFormat = format == 169u || format == 170u || format == 175u || format == 181u || format == 182u;
         supported = supported && anisoFormat && row.w == 1u && samplerMinLod == 0u && samplerMaxLod >= (lastLevel << 8);
         supported = supported && bitCount(width) == 1u && bitCount(height) == 1u;
     }
@@ -1176,6 +1176,7 @@ uvec4 sampleGuest(uvec4 tlow, uvec4 thigh, uvec4 ssharp, uvec4 row, uvec4 deriva
             for (uint tap = 0u; tap < 4u; ++tap) blended += RoundU64(uint64_t(anisoSums[tap][c]) * uint64_t(scale) * uint64_t(levelWeights[tap >> 1]), 5);
             uint64_t filtered = tapVector == uvec2(0u) ? RoundU64(blended, 7) : (blended + uint64_t(32)) >> 7;
             if (srgb && levelSlots == 2u) filtered = RoundU64(blended, 7);
+            if (format == 175u) { uint64_t raw = uint64_t(0); for (uint tap = 0u; tap < 4u; ++tap) raw += uint64_t(anisoSums[tap][c]) * uint64_t(levelWeights[tap >> 1]); filtered = (raw + uint64_t(512)) >> 18; }
             value[c] = srgb ? unorm16FilteredToFloat(filtered) : unormFilteredToFloat(uint(filtered));
             continue;
         }
