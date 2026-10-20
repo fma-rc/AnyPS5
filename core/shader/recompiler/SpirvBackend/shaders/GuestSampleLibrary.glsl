@@ -1175,6 +1175,7 @@ uvec4 sampleGuest(uvec4 tlow, uvec4 thigh, uvec4 ssharp, uvec4 row, uvec4 deriva
             uint64_t blended = uint64_t(0);
             for (uint tap = 0u; tap < 4u; ++tap) blended += RoundU64(uint64_t(anisoSums[tap][c]) * uint64_t(scale) * uint64_t(levelWeights[tap >> 1]), 5);
             uint64_t filtered = tapVector == uvec2(0u) ? RoundU64(blended, 7) : (blended + uint64_t(32)) >> 7;
+            if (srgb && levelSlots == 2u) filtered = RoundU64(blended, 7);
             value[c] = srgb ? unorm16FilteredToFloat(filtered) : unormFilteredToFloat(uint(filtered));
             continue;
         }
