@@ -1111,7 +1111,7 @@ uvec4 sampleGuest(uvec4 tlow, uvec4 thigh, uvec4 ssharp, uvec4 row, uvec4 deriva
     for (uint c = 0u; c < 4u; ++c) {
         if (anisoTaps) {
             uint64_t blended = RoundU64(uint64_t(anisoSums[0][c]) * uint64_t(levelWeights[0]), 5) + RoundU64(uint64_t(anisoSums[1][c]) * uint64_t(levelWeights[1]), 5);
-            value[c] = unormFilteredToFloat(uint((blended + uint64_t(32)) >> 7));
+            value[c] = unormFilteredToFloat(uint(tapVector == uvec2(0u) ? RoundU64(blended, 7) : (blended + uint64_t(32)) >> 7));
             continue;
         }
         uint texels[8];
