@@ -1094,7 +1094,7 @@ uvec4 sampleGuest(uvec4 tlow, uvec4 thigh, uvec4 ssharp, uvec4 row, uvec4 deriva
     uint tapWeights[8];
     uint tapLevels[8];
     uint tapCount = 0u;
-    uvec4 anisoSums[2] = uvec4[](uvec4(0u), uvec4(0u));
+    uvec4 anisoSums[4] = uvec4[](uvec4(0u), uvec4(0u), uvec4(0u), uvec4(0u));
     uint anisoPacked[16];
     uint anisoFractions[4];
     for (uint slot = 0u; slot < levelSlots; ++slot) {
@@ -1122,7 +1122,7 @@ uvec4 sampleGuest(uvec4 tlow, uvec4 thigh, uvec4 ssharp, uvec4 row, uvec4 deriva
                 anisoFractions[tap] = wx | (wy << 8);
                 for (uint corner = 0u; corner < 4u; ++corner) {
                     uvec4 texel = fetchTexel(base, (corner & 1u) != 0u ? xb : xa, (corner & 2u) != 0u ? yb : ya, format, level, swizzle);
-                    anisoSums[slot] += texel * (((corner & 1u) != 0u ? wx : 256u - wx) * ((corner & 2u) != 0u ? wy : 256u - wy));
+                    anisoSums[tap] += texel * (((corner & 1u) != 0u ? wx : 256u - wx) * ((corner & 2u) != 0u ? wy : 256u - wy));
                     anisoPacked[tap * 4u + corner] = texel.x | (texel.y << 8) | (texel.z << 16) | (texel.w << 24);
                 }
             }
@@ -1169,7 +1169,8 @@ uvec4 sampleGuest(uvec4 tlow, uvec4 thigh, uvec4 ssharp, uvec4 row, uvec4 deriva
                 continue;
             }
             uint scale = srgb ? 257u : 1u;
-            uint64_t blended = RoundU64(uint64_t(anisoSums[0][c]) * uint64_t(scale) * uint64_t(levelWeights[0]), 5) + RoundU64(uint64_t(anisoSums[1][c]) * uint64_t(scale) * uint64_t(levelWeights[1]), 5);
+            uint64_t blended = uint64_t(0);
+            for (uint tap = 0u; tap < 4u; ++tap) blended += RoundU64(uint64_t(anisoSums[tap][c]) * uint64_t(scale) * uint64_t(levelWeights[tap >> 1]), 5);
             uint64_t filtered = tapVector == uvec2(0u) ? RoundU64(blended, 7) : (blended + uint64_t(32)) >> 7;
             value[c] = srgb ? unorm16FilteredToFloat(filtered) : unormFilteredToFloat(uint(filtered));
             continue;
