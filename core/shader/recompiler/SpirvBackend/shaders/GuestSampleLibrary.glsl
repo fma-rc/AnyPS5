@@ -994,7 +994,7 @@ uvec4 sampleGuest(uvec4 tlow, uvec4 thigh, uvec4 ssharp, uvec4 row, uvec4 deriva
         tapLod = max(max(lmax - 256, lmin), 0);
         if (lmax > lmin) {
             tapVector = anisoTapVector(z1, z2, length1, length2);
-            tapExponent = findMSB(uint(min(lmax - lmin, 128)));
+            tapExponent = lmax - lmin < 16 ? 1 : findMSB(uint(min(lmax - lmin, 128)));
             if (faulted) return uvec4(0u);
         }
         tapSignPositive = products[0] * products[1] + products[2] * products[3] > 0;
