@@ -917,6 +917,12 @@ uint polygonRaw(int x, int y) {
     return uint(best);
 }
 
+int roundHalfEven24(int64_t value) {
+    int64_t whole = value >> 24;
+    int64_t rest = value & int64_t(0xffffff);
+    return int(whole) + ((rest > int64_t(0x800000) || (rest == int64_t(0x800000) && (whole & int64_t(1)) != int64_t(0))) ? 1 : 0);
+}
+
 uint truncateMantissa11(uint value) {
     if (value == 0u) return 0u;
     int top = findMSB(value);
@@ -948,12 +954,16 @@ uvec2 anisoTapVector(ivec2 z1, ivec2 z2, uint length1, uint length2) {
     return uvec2(2u * polygonLength(n1.x + n2.x, n1.y - n2.y), 2u * polygonLength(n1.x - n2.x, n1.y + n2.y));
 }
 
-ivec2 levelZeroCoordinate(uint bits, uint size) {
+ivec2 anisoCentre(uint bits, uint size, uint level) {
     uint exponent = (bits >> 23) & 0xffu;
     if (exponent == 0u) return unpackInt2x32(int64_t(0));
     int64_t mantissa = int64_t((bits & 0x7fffffu) | 0x800000u) * int64_t(size);
     if ((bits & 0x80000000u) != 0u) mantissa = -mantissa;
-    int shift = 134 - int(exponent);
+    int shift = 118 + int(level) - int(exponent);
+    if (shift < -24) {
+        faulted = true;
+        return unpackInt2x32(int64_t(0));
+    }
     if (shift <= 0) return unpackInt2x32(mantissa << uint(-shift));
     return roundHalfEvenShift(mantissa, uint(shift));
 }
@@ -1091,17 +1101,15 @@ uvec4 sampleGuest(uvec4 tlow, uvec4 thigh, uvec4 ssharp, uvec4 row, uvec4 deriva
         Level level = levelLayout(width, height, lastLevel + 1u, swizzle, bytesPerElementOf(format), firstLevel + slot);
         if (anisoTaps) {
             uint levelIndex = firstLevel + slot;
-            int64_t centreX = (packInt2x32(levelZeroCoordinate(row.x, width)) << (16u - levelIndex)) - (int64_t(128) << 24);
-            int64_t centreY = (packInt2x32(levelZeroCoordinate(row.y, height)) << (16u - levelIndex)) - (int64_t(128) << 24);
+            int64_t centreX = packInt2x32(anisoCentre(row.x, width, levelIndex)) - (int64_t(128) << 24);
+            int64_t centreY = packInt2x32(anisoCentre(row.y, height, levelIndex)) - (int64_t(128) << 24);
             uint offsetShift = uint(5 + tapExponent) - slot;
             int64_t offsetX = int64_t(tapNumerator.x) << offsetShift;
             int64_t offsetY = int64_t(tapNumerator.y) << offsetShift;
             if (!tapSignPositive) offsetY = -offsetY;
             for (uint side = 0u; side < 2u; ++side) {
-                int64_t fx = (side == 0u ? centreX + offsetX : centreX - offsetX) + (int64_t(1) << 23);
-                int64_t fy = (side == 0u ? centreY + offsetY : centreY - offsetY) + (int64_t(1) << 23);
-                fx >>= 24;
-                fy >>= 24;
+                int64_t fx = int64_t(roundHalfEven24(side == 0u ? centreX + offsetX : centreX - offsetX));
+                int64_t fy = int64_t(roundHalfEven24(side == 0u ? centreY + offsetY : centreY - offsetY));
                 int x0 = int(fx >> 8);
                 int y0 = int(fy >> 8);
                 uint wx = uint(fx & int64_t(255));
