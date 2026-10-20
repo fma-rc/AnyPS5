@@ -163,12 +163,12 @@ constexpr bool GuestSampleSupported(const std::array<std::uint32_t, 8>& image, c
     const bool anisoTaps = magFilter == 3u && minFilter == 3u && anisoRatio == 1u;
     if ((clampX != 0u && clampX != 2u) || (clampY != 0u && clampY != 2u)) return false;
     if (!anisoTaps && (magFilter != minFilter || magFilter > 1u || anisoRatio > 1u)) return false;
-    if ((sampler[0] & 0xe00u) != (anisoRatio << 9u) || ((sampler[0] >> 12u) & ~0x70u) != 0u || (anisoThreshold != 0u && anisoThreshold != 7u) || (sampler[2] & 0xfffffu) != 0u) return false;
+    if ((sampler[0] & 0xe00u) != (anisoRatio << 9u) || ((sampler[0] >> 12u) & ~0x70u) != 0u || (anisoThreshold != 0u && anisoThreshold != 7u) || (sampler[2] & (anisoTaps ? 0xfc000u : 0xfffffu)) != 0u) return false;
     if (anisoTaps) {
         const std::uint32_t samplerMaxLod = (sampler[1] >> 12u) & 0xfffu;
         const std::uint32_t width = (((image[1] >> 30u) & 3u) | ((image[2] & 0xfffu) << 2u)) + 1u;
         const std::uint32_t height = ((image[2] >> 14u) & 0x3fffu) + 1u;
-        if ((format != 169u && format != 181u && format != 182u) || lastLevel == 0u || textureMinLod != 0u || samplerMinLod != 0u || samplerMaxLod < (lastLevel << 8u)) return false;
+        if ((format != 169u && format != 170u && format != 181u && format != 182u) || samplerMinLod != 0u || samplerMaxLod < (lastLevel << 8u)) return false;
         if ((width & (width - 1u)) != 0u || (height & (height - 1u)) != 0u) return false;
     }
     if (lastLevel != 0u && (clampX != 2u || clampY != 2u || (mipFilter != 1u && mipFilter != 2u))) return false;

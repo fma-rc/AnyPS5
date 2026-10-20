@@ -12,6 +12,7 @@
 #include "GuestSampledTableMinLodData.hpp"
 #include "GuestSampledTableAnisoData.hpp"
 #include "GuestSampledTableAnisoSrgbData.hpp"
+#include "GuestSampledTableAnisoFormatsData.hpp"
 #include <algorithm>
 #include <array>
 #include <cstdint>
@@ -43,7 +44,7 @@ using ShaderRecompiler::ShaderStage;
 constexpr std::uint32_t Lanes = 64;
 constexpr std::uint32_t MaxGroups = 64;
 constexpr std::uint32_t Stride = 48;
-constexpr std::size_t BlockBytes = 0xc0000;
+constexpr std::size_t BlockBytes = 0xe8000;
 constexpr std::size_t Rgba8Offset = 0x00000;
 constexpr std::size_t Bc7Offset = 0x10000;
 constexpr std::size_t Bc7MipOffset = 0x20000;
@@ -63,7 +64,16 @@ constexpr std::size_t Bc7AnisoBilinearOffset = 0xa3000;
 constexpr std::size_t Bc7SrgbAnisoTrilinearOffset = 0xa8000;
 constexpr std::size_t Bc7SrgbAnisoPointOffset = 0xad000;
 constexpr std::size_t Bc7SrgbAnisoBilinearOffset = 0xb2000;
-constexpr std::uint32_t Records = 19;
+constexpr std::size_t Bc1AnisoTrilinearOffset = 0xb7000;
+constexpr std::size_t Bc1SrgbAnisoTrilinearOffset = 0xbc000;
+constexpr std::size_t Bc1SrgbAnisoPointOffset = 0xc1000;
+constexpr std::size_t Bc4AnisoTrilinearOffset = 0xc6000;
+constexpr std::size_t Bc5AnisoTrilinearOffset = 0xcb000;
+constexpr std::size_t Bc7SrgbAnisoOneLevelOffset = 0xd0000;
+constexpr std::size_t Bc7SrgbAnisoNpotOffset = 0xd5000;
+constexpr std::size_t Bc7AnisoMinLodOffset = 0xda000;
+constexpr std::size_t Bc7AnisoBiasOffset = 0xdf000;
+constexpr std::uint32_t Records = 28;
 constexpr std::size_t SrtOffset = 0x30000;
 constexpr std::size_t TableOffset = 0x30100;
 constexpr std::size_t KeysOffset = 0x30800;
@@ -119,6 +129,12 @@ std::array<std::uint32_t, 4> Sampler(std::uint32_t mag, std::uint32_t min, std::
 std::array<std::uint32_t, 4> AnisoSampler(std::uint32_t mag, std::uint32_t min, std::uint32_t mip) {
     auto words = Sampler(mag, min, mip);
     words[0] |= 1u << 9u;
+    return words;
+}
+
+std::array<std::uint32_t, 4> AnisoSampler(std::uint32_t mag, std::uint32_t min, std::uint32_t mip, std::uint32_t bias) {
+    auto words = AnisoSampler(mag, min, mip);
+    words[2] |= bias;
     return words;
 }
 
@@ -267,7 +283,7 @@ void RunCase(AgcDriver::VulkanDevice& device, GuestBlock& block, const Case& tes
         static_cast<unsigned long long>(afterHost.bound - afterGuest.bound), static_cast<unsigned long long>(afterHost.promotions - afterGuest.promotions), guestOracle, hostOracle, guestHost);
     Require(afterGuest.bound == before.bound + 1u && afterGuest.promotions == before.promotions + 1u, std::string(test.name) + ": the first use did not sample the element on the guest and promote it");
     Require(afterHost.bound == afterGuest.bound && afterHost.promotions == afterGuest.promotions, std::string(test.name) + ": the use after the promotion did not take the host texture");
-    const bool compressed = std::string_view(test.name).starts_with("bc7");
+    const bool compressed = std::string_view(test.name).starts_with("bc");
     const bool watched = AgcDriver::GuestMemory::Watched(reinterpret_cast<std::uintptr_t>(block.At<std::uint8_t>(0)), BlockBytes);
     std::printf("%-16s surface write-watched after its import: %s, promoted copy detiled from the import: %s\n", test.name, watched ? "yes" : "no", afterHost.directUploads > afterGuest.directUploads ? "yes" : "no");
     Require(afterHost.directUploads == afterGuest.directUploads + (compressed && watched ? 1u : 0u), std::string(test.name) + ": the promoted BC element of a write-watched surface was not detiled from its import on the GPU");
@@ -295,6 +311,8 @@ void RunTests(AgcDriver::VulkanDevice& device) {
     std::memcpy(block.At<std::uint8_t>(Bc7ImplicitOffset), GuestSampledTableData::Bc7MipMemory.data(), sizeof(GuestSampledTableData::Bc7MipMemory));
     std::memcpy(block.At<std::uint8_t>(Bc7BiasOffset), GuestSampledTableData::Bc7MipMemory.data(), sizeof(GuestSampledTableData::Bc7MipMemory));
     for (const auto offset : {Bc7MinLodTrilinearOffset, Bc7MinLodPointOffset, Bc7MinLodBiasOffset, Bc7AnisoTrilinearOffset, Bc7AnisoPointOffset, Bc7AnisoBilinearOffset, Bc7SrgbAnisoTrilinearOffset, Bc7SrgbAnisoPointOffset, Bc7SrgbAnisoBilinearOffset}) std::memcpy(block.At<std::uint8_t>(offset), GuestSampledTableData::Bc7MipMemory.data(), sizeof(GuestSampledTableData::Bc7MipMemory));
+    for (const auto offset : {Bc7SrgbAnisoOneLevelOffset, Bc7SrgbAnisoNpotOffset, Bc7AnisoMinLodOffset, Bc7AnisoBiasOffset}) std::memcpy(block.At<std::uint8_t>(offset), GuestSampledTableData::Bc7MipMemory.data(), sizeof(GuestSampledTableData::Bc7MipMemory));
+    for (const auto offset : {Bc1AnisoTrilinearOffset, Bc1SrgbAnisoTrilinearOffset, Bc1SrgbAnisoPointOffset, Bc4AnisoTrilinearOffset, Bc5AnisoTrilinearOffset}) std::memcpy(block.At<std::uint8_t>(offset), GuestSampledTableAnisoFormatsData::AnisoNoiseMemory.data(), sizeof(GuestSampledTableAnisoFormatsData::AnisoNoiseMemory));
     std::memcpy(block.At<std::uint8_t>(R16Offset), GuestSampledTableDerivativeData::R16Memory.data(), sizeof(GuestSampledTableDerivativeData::R16Memory));
     std::memcpy(block.At<std::uint8_t>(R32fOffset), GuestSampledTableDerivativeData::R32fMemory.data(), sizeof(GuestSampledTableDerivativeData::R32fMemory));
     constexpr std::uint32_t formatRgba8 = 56;
@@ -305,6 +323,10 @@ void RunTests(AgcDriver::VulkanDevice& device) {
     constexpr std::uint32_t swizzle256BS = 1;
     constexpr std::uint32_t formatR16 = 7;
     constexpr std::uint32_t formatR32f = 22;
+    constexpr std::uint32_t formatBc1 = 169;
+    constexpr std::uint32_t formatBc1Srgb = 170;
+    constexpr std::uint32_t formatBc4 = 175;
+    constexpr std::uint32_t formatBc5 = 177;
     const std::array<std::array<std::uint32_t, 8>, Records> records{
         TextureWords(block.At<std::uint8_t>(Rgba8Offset), formatRgba8, 120, 68, swizzle64KbS, 0),
         TextureWords(block.At<std::uint8_t>(Bc7Offset), formatBc7, 72, 40, swizzle4KbS, 0),
@@ -325,6 +347,15 @@ void RunTests(AgcDriver::VulkanDevice& device) {
         TextureWords(block.At<std::uint8_t>(Bc7SrgbAnisoTrilinearOffset), formatBc7Srgb, 128, 64, swizzle4KbS, 5),
         TextureWords(block.At<std::uint8_t>(Bc7SrgbAnisoPointOffset), formatBc7Srgb, 128, 64, swizzle4KbS, 5),
         TextureWords(block.At<std::uint8_t>(Bc7SrgbAnisoBilinearOffset), formatBc7Srgb, 128, 64, swizzle4KbS, 5),
+        TextureWords(block.At<std::uint8_t>(Bc1AnisoTrilinearOffset), formatBc1, 128, 64, swizzle4KbS, 5),
+        TextureWords(block.At<std::uint8_t>(Bc1SrgbAnisoTrilinearOffset), formatBc1Srgb, 128, 64, swizzle4KbS, 5),
+        TextureWords(block.At<std::uint8_t>(Bc1SrgbAnisoPointOffset), formatBc1Srgb, 128, 64, swizzle4KbS, 5),
+        TextureWords(block.At<std::uint8_t>(Bc4AnisoTrilinearOffset), formatBc4, 128, 64, swizzle4KbS, 5),
+        TextureWords(block.At<std::uint8_t>(Bc5AnisoTrilinearOffset), formatBc5, 128, 64, swizzle4KbS, 5),
+        TextureWords(block.At<std::uint8_t>(Bc7SrgbAnisoOneLevelOffset), formatBc7Srgb, 128, 64, swizzle4KbS, 0),
+        TextureWords(block.At<std::uint8_t>(Bc7SrgbAnisoNpotOffset), formatBc7Srgb, 96, 48, swizzle4KbS, 0),
+        withMinLod(TextureWords(block.At<std::uint8_t>(Bc7AnisoMinLodOffset), formatBc7, 128, 64, swizzle4KbS, 5), 0x80u),
+        TextureWords(block.At<std::uint8_t>(Bc7AnisoBiasOffset), formatBc7, 128, 64, swizzle4KbS, 5),
     };
     auto* table = block.At<std::uint32_t>(TableOffset);
     for (std::size_t record = 0; record < records.size(); ++record) std::copy(records[record].begin(), records[record].end(), table + record * (Stride / 4u) + 4u);
@@ -345,6 +376,13 @@ void RunTests(AgcDriver::VulkanDevice& device) {
     RunCase(device, block, {"bc7-srgb-aniso/bilinear", 18, AnisoSampler(1, 1, 2), GuestSampledTableAnisoSrgbData::Bc7SrgbAnisoRows, GuestSampledTableAnisoSrgbData::Bc7SrgbAnisoBilinearFilterTrilinear, 8});
     RunCase(device, block, {"bc7-srgb-aniso/point", 17, AnisoSampler(3, 3, 1), GuestSampledTableAnisoSrgbData::Bc7SrgbAnisoRows, GuestSampledTableAnisoSrgbData::Bc7SrgbAnisoPoint, 8});
     RunCase(device, block, {"bc7-srgb-aniso/trilinear", 16, AnisoSampler(3, 3, 2), GuestSampledTableAnisoSrgbData::Bc7SrgbAnisoRows, GuestSampledTableAnisoSrgbData::Bc7SrgbAnisoTrilinear, 8});
+    namespace Formats = GuestSampledTableAnisoFormatsData;
+    RunCase(device, block, {"bc1-aniso/trilinear", 19, AnisoSampler(3, 3, 2), Formats::AnisoFormatsRows, Formats::Bc1AnisoTrilinear, 8});
+    RunCase(device, block, {"bc1-srgb-aniso/trilinear", 20, AnisoSampler(3, 3, 2), Formats::AnisoFormatsRows, Formats::Bc1SrgbAnisoTrilinear, 8});
+    RunCase(device, block, {"bc1-srgb-aniso/point", 21, AnisoSampler(3, 3, 1), Formats::AnisoFormatsRows, Formats::Bc1SrgbAnisoPoint, 8});
+    RunCase(device, block, {"bc7-srgb-aniso/one-level", 24, AnisoSampler(3, 3, 2), Formats::AnisoFormatsRows, Formats::Bc7SrgbAnisoOneLevel, 8});
+    RunCase(device, block, {"bc7-aniso/minlod", 26, AnisoSampler(3, 3, 2), Formats::AnisoFormatsRows, Formats::Bc7AnisoMinLodHalf, 8});
+    RunCase(device, block, {"bc7-aniso/bias", 27, AnisoSampler(3, 3, 2, 0x80u), Formats::AnisoFormatsRows, Formats::Bc7AnisoBiasHalf, 8});
     RunCase(device, block, {"bc7/point", 1, Sampler(0, 0, 0), Bc7PointRows, Bc7Point});
     RunCase(device, block, {"bc7-mips/point", 2, Sampler(0, 0, 1), Bc7MipRows, Bc7MipPoint});
     RunCase(device, block, {"rgba8/point", 3, Sampler(0, 0, 0), Rgba8Rows, Rgba8Point});

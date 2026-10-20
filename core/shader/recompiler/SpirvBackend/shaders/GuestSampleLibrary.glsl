@@ -1007,11 +1007,11 @@ uvec4 sampleGuest(uvec4 tlow, uvec4 thigh, uvec4 ssharp, uvec4 row, uvec4 deriva
     supported = supported && (anisoTaps || (magFilter == minFilter && magFilter <= 1u && anisoRatio <= 1u));
     supported = supported && baseLevel == 0u && maxMip == lastLevel && max(textureMinLod, samplerMinLod) <= (lastLevel << 8);
     uint anisoThreshold = (ssharp.x >> 16) & 7u;
-    supported = supported && ((ssharp.x >> 12) & ~0x70u) == 0u && (anisoThreshold == 0u || anisoThreshold == 7u) && (ssharp.z & 0xfffffu) == 0u;
+    supported = supported && ((ssharp.x >> 12) & ~0x70u) == 0u && (anisoThreshold == 0u || anisoThreshold == 7u) && (ssharp.z & (anisoTaps ? 0xfc000u : 0xfffffu)) == 0u;
     supported = supported && (lastLevel == 0u || (clampX == 2u && clampY == 2u && (mipFilter == 1u || mipFilter == 2u)));
     if (anisoTaps) {
-        bool unormFormat = format == 169u || format == 181u || format == 182u;
-        supported = supported && unormFormat && row.w == 1u && lastLevel != 0u && textureMinLod == 0u && samplerMinLod == 0u && samplerMaxLod >= (lastLevel << 8);
+        bool anisoFormat = format == 169u || format == 170u || format == 181u || format == 182u;
+        supported = supported && anisoFormat && row.w == 1u && samplerMinLod == 0u && samplerMaxLod >= (lastLevel << 8);
         supported = supported && bitCount(width) == 1u && bitCount(height) == 1u;
     }
     if (!supported) {
@@ -1037,11 +1037,13 @@ uvec4 sampleGuest(uvec4 tlow, uvec4 thigh, uvec4 ssharp, uvec4 row, uvec4 deriva
         ivec2 z2 = ivec2(products[0] - products[3], products[1] + products[2]);
         uint length1 = polygonLength(z1.x, z1.y);
         uint length2 = polygonLength(z2.x, z2.y);
+        int samplerBias = (int(ssharp.z << 18) >> 18);
         int lmax = lodOfLength(length1 + length2, scale);
         uint gap = (uint(abs(int(length1) - int(length2))) >> 1) << 1;
-        int lmin = gap == 0u ? 0 : max(lodOfLength(gap, scale), 0);
+        int lminRaw = gap == 0u ? -0x100000 : lodOfLength(gap, scale);
+        int lmin = max(lminRaw, 0);
         if (faulted) return uvec4(0u);
-        quantizedLod = uint(clamp(max(lmax - 256, lmin), 0, int(lastLevel) * 256));
+        quantizedLod = uint(clamp(max(lmax - 256, lminRaw) + samplerBias, 0, int(lastLevel) * 256));
         tapLod = max(max(lmax - 256, lmin), 0);
         if (lmax > lmin) {
             tapVector = anisoTapVector(z1, z2, length1, length2);
@@ -1084,8 +1086,9 @@ uvec4 sampleGuest(uvec4 tlow, uvec4 thigh, uvec4 ssharp, uvec4 row, uvec4 deriva
         int scaleIndex = (tapLod & ~3) - 256 * int(firstLevel);
         int scaleLevels = mipFilter == 1u ? (scaleIndex + 128) >> 8 : scaleIndex >> 8;
         uint scaleFraction = uint(scaleIndex - 256 * scaleLevels);
-        uint tapScale = (mipFilter == 1u ? anisoScale(AnisoPointScale, (scaleFraction + 128u) & 255u) : 128u + anisoScale(AnisoTrilinearScale, scaleFraction)) << uint(scaleLevels);
+        uint tapScale = mipFilter == 1u ? anisoScale(AnisoPointScale, (scaleFraction + 128u) & 255u) : 128u + anisoScale(AnisoTrilinearScale, scaleFraction);
         tapNumerator = uvec2(truncateMantissa11(tapVector.x * tapScale), truncateMantissa11(tapVector.y * tapScale));
+        tapNumerator = scaleLevels >= 0 ? tapNumerator << uint(scaleLevels) : tapNumerator >> uint(-scaleLevels);
     }
     uint levelWeights[2] = uint[](256u - fraction, fraction);
     uint levelSlots = fraction != 0u ? 2u : 1u;
