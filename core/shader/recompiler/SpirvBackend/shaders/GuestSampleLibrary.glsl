@@ -851,17 +851,21 @@ ivec2 scaledUnit(ivec2 z, int reciprocal, int shift, bool down) {
 }
 
 ivec2 halvedUnit(ivec2 u, int shift, bool down) {
+    if (shift == 0) return u;
     return ivec2(halfUpShift(u.x, shift), roundedShift(u.y, shift, down));
 }
 
-ivec2 shortUnit(ivec2 z, uint length, bool down) {
-    if (length < 512u) return scaledUnit(z, anisoReciprocal(4u * length), 10, down);
-    return scaledUnit(z, anisoReciprocal(2u * length), 10, down);
+uint doublingsDown(uint length) {
+    return uint(max(findMSB(length) - 10, 0));
 }
 
-ivec2 shortPairLongUnit(ivec2 z, uint length, uint shift, bool down) {
-    if (length >= 2048u) return halvedUnit(scaledUnit(z, anisoReciprocal(length >> 1), 10, down), int(shift) + 1, down);
-    return halvedUnit(scaledUnit(z, anisoReciprocal(length), 10, down), int(shift), down);
+uint doublingsUp(uint length) {
+    return uint(max(10 - findMSB(length), 0));
+}
+
+ivec2 longUnit(ivec2 z, uint length, uint extra, bool down) {
+    uint k = doublingsDown(length);
+    return halvedUnit(scaledUnit(z, anisoReciprocal(length >> k), 10, down), int(k + extra), down);
 }
 
 uint polygonRaw(int x, int y) {
@@ -879,28 +883,27 @@ uint truncateMantissa11(uint value) {
 }
 
 uvec2 anisoTapVector(ivec2 z1, ivec2 z2, uint length1, uint length2) {
-    if (min(length1, length2) < 256u || max(length1, length2) >= 4096u) {
+    uint shortest = min(length1, length2);
+    if (shortest == 0u) {
         faulted = true;
         return uvec2(0u);
     }
     ivec2 n1;
     ivec2 n2;
-    if (min(length1, length2) < 1024u) {
-        uint shift = min(length1, length2) < 512u ? 2u : 1u;
-        n1 = length1 < 1024u ? shortUnit(z1, length1, true) : shortPairLongUnit(z1, length1, shift, true);
-        n2 = length2 < 1024u ? shortUnit(z2, length2, false) : shortPairLongUnit(z2, length2, shift, false);
+    if (shortest < 1024u) {
+        uint shift = doublingsUp(shortest);
+        n1 = length1 < 1024u ? scaledUnit(z1, anisoReciprocal(length1 << shift), 10, true) : longUnit(z1, length1, shift, true);
+        n2 = length2 < 1024u ? scaledUnit(z2, anisoReciprocal(length2 << shift), 10, false) : longUnit(z2, length2, shift, false);
         uint factor = 2u << shift;
         return uvec2(factor * polygonLength(n1.x + n2.x, n1.y - n2.y), factor * polygonLength(n1.x - n2.x, n1.y + n2.y));
     }
-    bool long1 = length1 >= 2048u;
-    bool long2 = length2 >= 2048u;
-    if (long1 && long2) {
-        n1 = scaledUnit(z1, anisoReciprocal(length1 >> 1), 10, true);
-        n2 = scaledUnit(z2, anisoReciprocal(length2 >> 1), 10, false);
+    if (length1 >= 2048u && length2 >= 2048u) {
+        n1 = halvedUnit(scaledUnit(z1, anisoReciprocal(length1 >> doublingsDown(length1)), 10, true), int(doublingsDown(length1)) - 1, true);
+        n2 = halvedUnit(scaledUnit(z2, anisoReciprocal(length2 >> doublingsDown(length2)), 10, false), int(doublingsDown(length2)) - 1, false);
         return uvec2(truncateMantissa11((polygonRaw(n1.x + n2.x, n1.y - n2.y) + 512u) >> 10), truncateMantissa11((polygonRaw(n1.x - n2.x, n1.y + n2.y) + 512u) >> 10));
     }
-    n1 = long1 ? halvedUnit(scaledUnit(z1, anisoReciprocal(length1 >> 1), 10, true), 1, true) : scaledUnit(z1, anisoReciprocal(length1), 10, true);
-    n2 = long2 ? halvedUnit(scaledUnit(z2, anisoReciprocal(length2 >> 1), 10, false), 1, false) : scaledUnit(z2, anisoReciprocal(length2), 10, false);
+    n1 = longUnit(z1, length1, 0u, true);
+    n2 = longUnit(z2, length2, 0u, false);
     return uvec2(2u * polygonLength(n1.x + n2.x, n1.y - n2.y), 2u * polygonLength(n1.x - n2.x, n1.y + n2.y));
 }
 
