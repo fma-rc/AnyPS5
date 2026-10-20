@@ -689,6 +689,47 @@ uint floatFilter(uint values[8], uint weights[8], uint tapLevels[8], uint tapCou
     return roundFilterSum(high, low, negative, lowest - 44);
 }
 
+uint srgbAnisoFilter(uint packed[16], uint fractions[4], uint levelSlots, uint levelWeights[2], uint channel) {
+    int largest[2] = int[](-1000, -1000);
+    for (uint i = 0u; i < levelSlots * 8u; ++i) {
+        uint value = SrgbToLinear[(packed[i] >> (channel * 8u)) & 0xffu];
+        uint biased = (value >> 23) & 0xffu;
+        if (biased != 0u) largest[i >> 3] = max(largest[i >> 3], int(biased) - 127);
+    }
+    if (largest[0] == -1000 && largest[1] == -1000) return 0u;
+    int64_t levelSums[2] = int64_t[](int64_t(0), int64_t(0));
+    for (uint i = 0u; i < levelSlots * 8u; ++i) {
+        uint value = SrgbToLinear[(packed[i] >> (channel * 8u)) & 0xffu];
+        uint biased = (value >> 23) & 0xffu;
+        if (biased == 0u) continue;
+        uint fraction = fractions[i >> 2];
+        uint wx = fraction & 0xffu;
+        uint wy = fraction >> 8;
+        uint weight = ((i & 1u) != 0u ? wx : 256u - wx) * ((i & 2u) != 0u ? wy : 256u - wy) * levelWeights[i >> 3];
+        if (weight == 0u) continue;
+        uint shift = uint(largest[i >> 3] - (int(biased) - 127) + 3);
+        uint mantissa = (value & 0x7fffffu) | 0x800000u;
+        levelSums[i >> 3] += int64_t(shift >= 32u ? 0u : mantissa >> shift) * int64_t(weight);
+    }
+    uint upper = largest[1] > largest[0] ? 1u : 0u;
+    int lowest = largest[1 - upper] == -1000 ? largest[upper] : largest[1 - upper];
+    int gap = largest[upper] - lowest;
+    uint64_t high = uint64_t(0);
+    uint64_t low = uint64_t(0);
+    if (gap <= 15) {
+        low = uint64_t((levelSums[upper] << uint(gap)) + levelSums[1 - upper]);
+    } else {
+        uint64_t upperSum = uint64_t(levelSums[upper]);
+        high = gap >= 64 ? upperSum << uint(gap - 64) : upperSum >> uint(64 - gap);
+        low = gap >= 64 ? uint64_t(0) : upperSum << uint(gap);
+        uint64_t added = low + uint64_t(levelSums[1 - upper]);
+        if (added < low) high += uint64_t(1);
+        low = added;
+    }
+    if (high == uint64_t(0) && low == uint64_t(0)) return 0u;
+    return roundFilterSum(high, low, false, lowest - 45);
+}
+
 uint selectChannel(uint selector, uvec4 value) {
     switch (selector) {
         case 0u: return 0u;
@@ -959,7 +1000,7 @@ uvec4 sampleGuest(uvec4 tlow, uvec4 thigh, uvec4 ssharp, uvec4 row, uvec4 deriva
     supported = supported && ((ssharp.x >> 12) & ~0x70u) == 0u && (anisoThreshold == 0u || anisoThreshold == 7u) && (ssharp.z & 0xfffffu) == 0u;
     supported = supported && (lastLevel == 0u || (clampX == 2u && clampY == 2u && (mipFilter == 1u || mipFilter == 2u)));
     if (anisoTaps) {
-        bool unormFormat = format == 169u || format == 181u;
+        bool unormFormat = format == 169u || format == 181u || format == 182u;
         supported = supported && unormFormat && row.w == 1u && lastLevel != 0u && textureMinLod == 0u && samplerMinLod == 0u && samplerMaxLod >= (lastLevel << 8);
         supported = supported && bitCount(width) == 1u && bitCount(height) == 1u;
     }
@@ -1044,6 +1085,8 @@ uvec4 sampleGuest(uvec4 tlow, uvec4 thigh, uvec4 ssharp, uvec4 row, uvec4 deriva
     uint tapLevels[8];
     uint tapCount = 0u;
     uvec4 anisoSums[2] = uvec4[](uvec4(0u), uvec4(0u));
+    uint anisoPacked[16];
+    uint anisoFractions[4];
     for (uint slot = 0u; slot < levelSlots; ++slot) {
         Level level = levelLayout(width, height, lastLevel + 1u, swizzle, bytesPerElementOf(format), firstLevel + slot);
         if (anisoTaps) {
@@ -1067,10 +1110,13 @@ uvec4 sampleGuest(uvec4 tlow, uvec4 thigh, uvec4 ssharp, uvec4 row, uvec4 deriva
                 int xb = wrapIndex(x0 + 1, int(level.width), clampX);
                 int ya = wrapIndex(y0, int(level.height), clampY);
                 int yb = wrapIndex(y0 + 1, int(level.height), clampY);
-                anisoSums[slot] += fetchTexel(base, xa, ya, format, level, swizzle) * ((256u - wx) * (256u - wy));
-                anisoSums[slot] += fetchTexel(base, xb, ya, format, level, swizzle) * (wx * (256u - wy));
-                anisoSums[slot] += fetchTexel(base, xa, yb, format, level, swizzle) * ((256u - wx) * wy);
-                anisoSums[slot] += fetchTexel(base, xb, yb, format, level, swizzle) * (wx * wy);
+                uint tap = slot * 2u + side;
+                anisoFractions[tap] = wx | (wy << 8);
+                for (uint corner = 0u; corner < 4u; ++corner) {
+                    uvec4 texel = fetchTexel(base, (corner & 1u) != 0u ? xb : xa, (corner & 2u) != 0u ? yb : ya, format, level, swizzle);
+                    anisoSums[slot] += texel * (((corner & 1u) != 0u ? wx : 256u - wx) * ((corner & 2u) != 0u ? wy : 256u - wy));
+                    anisoPacked[tap * 4u + corner] = texel.x | (texel.y << 8) | (texel.z << 16) | (texel.w << 24);
+                }
             }
             continue;
         }
@@ -1110,8 +1156,14 @@ uvec4 sampleGuest(uvec4 tlow, uvec4 thigh, uvec4 ssharp, uvec4 row, uvec4 deriva
     uvec4 value;
     for (uint c = 0u; c < 4u; ++c) {
         if (anisoTaps) {
-            uint64_t blended = RoundU64(uint64_t(anisoSums[0][c]) * uint64_t(levelWeights[0]), 5) + RoundU64(uint64_t(anisoSums[1][c]) * uint64_t(levelWeights[1]), 5);
-            value[c] = unormFilteredToFloat(uint(tapVector == uvec2(0u) ? RoundU64(blended, 7) : (blended + uint64_t(32)) >> 7));
+            if (srgb && c < 3u) {
+                value[c] = srgbAnisoFilter(anisoPacked, anisoFractions, levelSlots, levelWeights, c);
+                continue;
+            }
+            uint scale = srgb ? 257u : 1u;
+            uint64_t blended = RoundU64(uint64_t(anisoSums[0][c]) * uint64_t(scale) * uint64_t(levelWeights[0]), 5) + RoundU64(uint64_t(anisoSums[1][c]) * uint64_t(scale) * uint64_t(levelWeights[1]), 5);
+            uint64_t filtered = tapVector == uvec2(0u) ? RoundU64(blended, 7) : (blended + uint64_t(32)) >> 7;
+            value[c] = srgb ? unorm16FilteredToFloat(filtered) : unormFilteredToFloat(uint(filtered));
             continue;
         }
         uint texels[8];

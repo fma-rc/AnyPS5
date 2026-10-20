@@ -168,7 +168,7 @@ constexpr bool GuestSampleSupported(const std::array<std::uint32_t, 8>& image, c
         const std::uint32_t samplerMaxLod = (sampler[1] >> 12u) & 0xfffu;
         const std::uint32_t width = (((image[1] >> 30u) & 3u) | ((image[2] & 0xfffu) << 2u)) + 1u;
         const std::uint32_t height = ((image[2] >> 14u) & 0x3fffu) + 1u;
-        if ((format != 169u && format != 181u) || lastLevel == 0u || textureMinLod != 0u || samplerMinLod != 0u || samplerMaxLod < (lastLevel << 8u)) return false;
+        if ((format != 169u && format != 181u && format != 182u) || lastLevel == 0u || textureMinLod != 0u || samplerMinLod != 0u || samplerMaxLod < (lastLevel << 8u)) return false;
         if ((width & (width - 1u)) != 0u || (height & (height - 1u)) != 0u) return false;
     }
     if (lastLevel != 0u && (clampX != 2u || clampY != 2u || (mipFilter != 1u && mipFilter != 2u))) return false;
