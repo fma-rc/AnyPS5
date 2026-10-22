@@ -133,6 +133,27 @@ constexpr std::uint32_t TableHeader(std::uint32_t table) {
     return HeaderWords + TableWords * table;
 }
 
+constexpr bool GuestLoadSupported(const std::array<std::uint32_t, 8>& image) {
+    const std::uint32_t format = (image[1] >> 20u) & 0x1ffu;
+    const std::uint32_t textureMinLod = (image[1] >> 8u) & 0xfffu;
+    const std::uint32_t baseLevel = (image[3] >> 12u) & 0xfu;
+    const std::uint32_t lastLevel = (image[3] >> 16u) & 0xfu;
+    const std::uint32_t swizzle = (image[3] >> 20u) & 0x1fu;
+    const std::uint32_t type = (image[3] >> 28u) & 0xfu;
+    const std::uint32_t maxMip = (image[5] >> 4u) & 0xfu;
+    const bool rgba8 = format == 56u;
+    const bool single = format == 7u || format == 22u;
+    const bool bc = format == 169u || format == 170u || format == 175u || format == 177u || format == 179u || format == 181u || format == 182u;
+    if (!rgba8 && !single && !bc) return false;
+    if (type != 9u || baseLevel != 0u || maxMip != lastLevel || textureMinLod != 0u) return false;
+    if (rgba8 ? (swizzle != 0u && swizzle != 9u) || lastLevel != 0u : single ? swizzle != 0u && swizzle != 1u : swizzle != 0u && swizzle != 1u && swizzle != 5u && swizzle != 9u) return false;
+    for (std::uint32_t channel = 0; channel < 4u; ++channel) {
+        const std::uint32_t selector = (image[3] >> (channel * 3u)) & 7u;
+        if (selector == 2u || selector == 3u) return false;
+    }
+    return swizzle != 0u || image[4] == 0u;
+}
+
 constexpr bool GuestSampleSupported(const std::array<std::uint32_t, 8>& image, const std::array<std::uint32_t, 4>& sampler) {
     const std::uint32_t format = (image[1] >> 20u) & 0x1ffu;
     const std::uint32_t textureMinLod = (image[1] >> 8u) & 0xfffu;

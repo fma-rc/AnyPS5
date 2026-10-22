@@ -1165,6 +1165,7 @@ ResolvedImageTables ResourceMaterializer::ResolveImageTables(const ShaderInfo& i
     };
     std::map<std::tuple<std::array<std::uint32_t, 8>, RdnaImageDimension, bool, DescriptorBindingKind>, std::uint32_t> elementIndex;
     std::vector<bool> elementGuest;
+    std::vector<bool> elementLoad;
     std::vector<std::uint32_t> elementWhy;
     const auto guestMode = [](const ImageResource& mode) {
         return mode.conversionFormat == IrBufferFormat::Invalid && !mode.depthBits && !mode.depthUnorm16 && !mode.srgbDecode && !mode.constantSwizzle && !mode.packed && !mode.cube && !mode.depthCompare && mode.emulatedCompare == 0u && mode.packedFormat == IrBufferFormat::Invalid && mode.dimension == RdnaImageDimension::Dim2D && mode.numericClass == IrTextureNumericClass::Float;
@@ -1208,6 +1209,8 @@ ResolvedImageTables ResourceMaterializer::ResolveImageTables(const ShaderInfo& i
                 } else {
                     if (inserted) out.elements.push_back({element, mode.dimension, mode.depthCompare, kind, 0u});
                     if (inserted) elementGuest.push_back(true);
+                    if (inserted) elementLoad.push_back(false);
+                    if (image.guestLoad) elementLoad[found->second] = true;
                     if (inserted) elementWhy.push_back(0u);
                     if (elementWhy[found->second] == 0u && !image.guestSample) elementWhy[found->second] = 1u;
                     if (elementWhy[found->second] == 0u && !guestMode(mode)) elementWhy[found->second] = 2u;
@@ -1309,7 +1312,7 @@ ResolvedImageTables ResourceMaterializer::ResolveImageTables(const ShaderInfo& i
     bool anyGuest = false;
     for (std::size_t index = 0; index < out.elements.size(); ++index) {
         const auto& element = out.elements[index];
-        bool capable = elementGuest[index] && element.samplers != 0u;
+        bool capable = elementGuest[index] && (element.samplers != 0u || elementLoad[index]) && (!elementLoad[index] || Abi::GuestLoadSupported(element.words));
         for (std::uint32_t sampler = 0; capable && sampler < 32u && sampler < info.samplers.size(); ++sampler) {
             if (((element.samplers >> sampler) & 1u) == 0u) continue;
             const auto& words = snapshot.samplers.at(sampler).dwords;
@@ -1317,7 +1320,8 @@ ResolvedImageTables ResourceMaterializer::ResolveImageTables(const ShaderInfo& i
         }
         {
             auto why = elementWhy[index];
-            if (why == 0u && element.samplers == 0u) why = 3u;
+            if (why == 0u && element.samplers == 0u && !elementLoad[index]) why = 3u;
+            if (why == 0u && elementLoad[index] && !Abi::GuestLoadSupported(element.words)) why = 11u;
             for (std::uint32_t sampler = 0; why == 0u && sampler < 32u && sampler < info.samplers.size(); ++sampler) {
                 if (((element.samplers >> sampler) & 1u) == 0u) continue;
                 const auto& words = snapshot.samplers.at(sampler).dwords;

@@ -44,7 +44,7 @@ using ShaderRecompiler::ShaderStage;
 constexpr std::uint32_t Lanes = 64;
 constexpr std::uint32_t MaxGroups = 64;
 constexpr std::uint32_t Stride = 48;
-constexpr std::size_t BlockBytes = 0xe8000;
+constexpr std::size_t BlockBytes = 0x10a000;
 constexpr std::size_t Rgba8Offset = 0x00000;
 constexpr std::size_t Bc7Offset = 0x10000;
 constexpr std::size_t Bc7MipOffset = 0x20000;
@@ -73,7 +73,11 @@ constexpr std::size_t Bc7SrgbAnisoOneLevelOffset = 0xd0000;
 constexpr std::size_t Bc7SrgbAnisoNpotOffset = 0xd5000;
 constexpr std::size_t Bc7AnisoMinLodOffset = 0xda000;
 constexpr std::size_t Bc7AnisoBiasOffset = 0xdf000;
-constexpr std::uint32_t Records = 28;
+constexpr std::size_t R32fLoadOffset = 0xe8000;
+constexpr std::size_t Rgba8LoadOffset = 0xf0000;
+constexpr std::size_t Bc7LoadOffset = 0x100000;
+constexpr std::size_t Bc7CentreOffset = 0x105000;
+constexpr std::uint32_t Records = 32;
 constexpr std::size_t SrtOffset = 0x30000;
 constexpr std::size_t TableOffset = 0x30100;
 constexpr std::size_t KeysOffset = 0x30800;
@@ -113,6 +117,14 @@ alignas(256) constexpr std::array<std::uint32_t, 34> SampleDerivativeCode{
     0xf42c0902u, 0x24000010u, 0x7e120202u, 0x34101286u, 0x4a101100u, 0x34121085u, 0x34101084u, 0xe0381000u,
     0x80050a09u, 0xe0341010u, 0x80050e09u, 0xbf8c0070u, 0xf0880f08u, 0x0109040au, 0xbf8c3f70u, 0xe0781000u,
     0x80070408u, 0xbf810000u,
+};
+
+// As SampleCode, but with image_load_mip (rows: x, y, level as integers).
+alignas(256) constexpr std::array<std::uint32_t, 29> LoadCode{
+    0xf4080100u, 0xfa000000u, 0xf4080200u, 0xfa000010u, 0xf4080700u, 0xfa000020u, 0xf4080800u, 0xfa000030u,
+    0xf4080500u, 0xfa000040u, 0x8f108202u, 0xf4200444u, 0x20000000u, 0x9312b011u, 0xf42c0902u, 0x24000010u,
+    0x7e120202u, 0x34101286u, 0x4a101100u, 0x34101084u, 0xe0381000u, 0x80050a08u, 0xbf8c3f70u, 0xf0040f08u,
+    0x0009040au, 0xbf8c3f70u, 0xe0781000u, 0x80070408u, 0xbf810000u,
 };
 
 std::array<std::uint32_t, 4> Sampler(std::uint32_t mag, std::uint32_t min, std::uint32_t mip) {
@@ -292,6 +304,77 @@ void RunCase(AgcDriver::VulkanDevice& device, GuestBlock& block, const Case& tes
     Require(guestOracle == 0u, std::string(test.name) + ": the guest sampler disagrees with the hardware");
 }
 
+std::uint32_t FloatBits(float value) {
+    std::uint32_t bits = 0;
+    std::memcpy(&bits, &value, sizeof(bits));
+    return bits;
+}
+
+std::vector<std::uint32_t> RunLoad(AgcDriver::VulkanDevice& device, GuestBlock& block, const char* name, std::uint32_t record, std::span<const std::uint32_t> rows, std::vector<std::uint32_t>* host) {
+    AgcDriver::GuestMemory::BumpCollectEpoch();
+    const auto before = AgcDriver::Graphics::GuestTableElements();
+    const Case test{name, record, Sampler(0, 0, 1), rows, {}, 4, LoadCode};
+    auto guest = Sample(device, block, test);
+    const auto afterGuest = AgcDriver::Graphics::GuestTableElements();
+    Require(afterGuest.bound == before.bound + 1u && afterGuest.promotions == before.promotions + 1u, std::string(name) + ": the first load did not read the element on the guest and promote it");
+    if (host != nullptr) {
+        *host = Sample(device, block, test);
+        const auto afterHost = AgcDriver::Graphics::GuestTableElements();
+        Require(afterHost.bound == afterGuest.bound && afterHost.promotions == afterGuest.promotions, std::string(name) + ": the load after the promotion did not take the host texture");
+    }
+    return guest;
+}
+
+void RunLoadTests(AgcDriver::VulkanDevice& device, GuestBlock& block) {
+    std::vector<std::uint32_t> rows;
+    std::vector<std::uint32_t> expected;
+    const auto* linear = reinterpret_cast<const std::uint8_t*>(GuestSampledTableData::Rgba8Linear.data());
+    for (std::uint32_t y = 0; y < 34u; ++y) {
+        for (std::uint32_t x = 0; x < 120u; ++x) {
+            rows.insert(rows.end(), {x, y, 0u, 0u});
+            for (std::uint32_t c = 0; c < 4u; ++c) expected.push_back(FloatBits(static_cast<float>(linear[(y * 120u + x) * 4u + c]) / 255.0f));
+        }
+    }
+    const auto inside = rows.size();
+    for (std::uint32_t x = 120u; x < 128u; ++x) rows.insert(rows.end(), {x, 0u, 0u, 0u});
+    for (std::uint32_t x = 0; x < 8u; ++x) rows.insert(rows.end(), {x, 0u, 1u, 0u});
+    expected.resize(rows.size(), 0u);
+    std::vector<std::uint32_t> host;
+    const auto rgba8 = RunLoad(device, block, "rgba8/load", 29, rows, &host);
+    const auto rgba8Expected = Mismatches(rgba8, expected, "rgba8/load guest");
+    const auto rgba8Host = Mismatches(std::span(host).first(inside), std::span(rgba8).first(inside), "rgba8/load host vs guest");
+    std::printf("%-16s rows %4zu: mismatches guest/expected %zu, host/guest %zu\n", "rgba8/load", rows.size() / 4u, rgba8Expected, rgba8Host);
+    Require(rgba8Expected == 0u && rgba8Host == 0u, "rgba8/load: the guest texel load disagrees with the texels or the host load");
+
+    rows.clear();
+    for (std::uint32_t y = 0; y < 64u; ++y) {
+        for (std::uint32_t x = 0; x < 64u; ++x) rows.insert(rows.end(), {x, y, 0u, 0u});
+    }
+    const auto r32f = RunLoad(device, block, "r32f/load", 28, rows, &host);
+    const auto r32fHost = Mismatches(host, r32f, "r32f/load host vs guest");
+    std::printf("%-16s rows %4zu: mismatches host/guest %zu\n", "r32f/load", rows.size() / 4u, r32fHost);
+    Require(r32fHost == 0u && std::find(r32f.begin(), r32f.end(), 0xdeadbeefu) == r32f.end(), "r32f/load: the guest texel load disagrees with the host load");
+
+    rows.clear();
+    std::vector<std::uint32_t> centres;
+    for (std::uint32_t level = 0; level < 6u; ++level) {
+        const auto width = 128u >> level;
+        const auto height = 64u >> level;
+        for (std::uint32_t y = 0; y < (level == 0u ? 10u : height); ++y) {
+            for (std::uint32_t x = 0; x < width; ++x) {
+                rows.insert(rows.end(), {x, y, level, 0u});
+                centres.insert(centres.end(), {FloatBits((static_cast<float>(x) + 0.5f) / static_cast<float>(width)), FloatBits((static_cast<float>(y) + 0.5f) / static_cast<float>(height)), FloatBits(static_cast<float>(level)), 0u});
+            }
+        }
+    }
+    const auto bc7 = RunLoad(device, block, "bc7-mips/load", 30, rows, nullptr);
+    AgcDriver::GuestMemory::BumpCollectEpoch();
+    const auto point = Sample(device, block, {"bc7-mips/centre", 31, Sampler(0, 0, 1), centres, {}});
+    const auto bc7Point = Mismatches(bc7, point, "bc7-mips/load guest vs guest point sample");
+    std::printf("%-16s rows %4zu: mismatches guest load/guest point sample at the texel centre %zu\n", "bc7-mips/load", rows.size() / 4u, bc7Point);
+    Require(bc7Point == 0u, "bc7-mips/load: the guest texel load disagrees with the guest point sample at the texel centre");
+}
+
 void RunTests(AgcDriver::VulkanDevice& device) {
     GuestBlock block;
     auto* rgba8 = block.At<std::uint8_t>(Rgba8Offset);
@@ -315,6 +398,10 @@ void RunTests(AgcDriver::VulkanDevice& device) {
     for (const auto offset : {Bc1AnisoTrilinearOffset, Bc1SrgbAnisoTrilinearOffset, Bc1SrgbAnisoPointOffset, Bc4AnisoTrilinearOffset, Bc5AnisoTrilinearOffset}) std::memcpy(block.At<std::uint8_t>(offset), GuestSampledTableAnisoFormatsData::AnisoNoiseMemory.data(), sizeof(GuestSampledTableAnisoFormatsData::AnisoNoiseMemory));
     std::memcpy(block.At<std::uint8_t>(R16Offset), GuestSampledTableDerivativeData::R16Memory.data(), sizeof(GuestSampledTableDerivativeData::R16Memory));
     std::memcpy(block.At<std::uint8_t>(R32fOffset), GuestSampledTableDerivativeData::R32fMemory.data(), sizeof(GuestSampledTableDerivativeData::R32fMemory));
+    std::memcpy(block.At<std::uint8_t>(R32fLoadOffset), GuestSampledTableDerivativeData::R32fMemory.data(), sizeof(GuestSampledTableDerivativeData::R32fMemory));
+    std::memcpy(block.At<std::uint8_t>(Rgba8LoadOffset), rgba8, 0x10000);
+    std::memcpy(block.At<std::uint8_t>(Bc7LoadOffset), GuestSampledTableData::Bc7MipMemory.data(), sizeof(GuestSampledTableData::Bc7MipMemory));
+    std::memcpy(block.At<std::uint8_t>(Bc7CentreOffset), GuestSampledTableData::Bc7MipMemory.data(), sizeof(GuestSampledTableData::Bc7MipMemory));
     constexpr std::uint32_t formatRgba8 = 56;
     constexpr std::uint32_t formatBc7 = 181;
     constexpr std::uint32_t formatBc7Srgb = 182;
@@ -356,6 +443,10 @@ void RunTests(AgcDriver::VulkanDevice& device) {
         TextureWords(block.At<std::uint8_t>(Bc7SrgbAnisoNpotOffset), formatBc7Srgb, 96, 48, swizzle4KbS, 0),
         withMinLod(TextureWords(block.At<std::uint8_t>(Bc7AnisoMinLodOffset), formatBc7, 128, 64, swizzle4KbS, 5), 0x80u),
         TextureWords(block.At<std::uint8_t>(Bc7AnisoBiasOffset), formatBc7, 128, 64, swizzle4KbS, 5),
+        TextureWords(block.At<std::uint8_t>(R32fLoadOffset), formatR32f, 64, 64, swizzle256BS, 0),
+        TextureWords(block.At<std::uint8_t>(Rgba8LoadOffset), formatRgba8, 120, 68, swizzle64KbS, 0),
+        TextureWords(block.At<std::uint8_t>(Bc7LoadOffset), formatBc7, 128, 64, swizzle4KbS, 5),
+        TextureWords(block.At<std::uint8_t>(Bc7CentreOffset), formatBc7, 128, 64, swizzle4KbS, 5),
     };
     auto* table = block.At<std::uint32_t>(TableOffset);
     for (std::size_t record = 0; record < records.size(); ++record) std::copy(records[record].begin(), records[record].end(), table + record * (Stride / 4u) + 4u);
@@ -388,6 +479,7 @@ void RunTests(AgcDriver::VulkanDevice& device) {
     RunCase(device, block, {"bc7-mips/point", 2, Sampler(0, 0, 1), Bc7MipRows, Bc7MipPoint});
     RunCase(device, block, {"rgba8/point", 3, Sampler(0, 0, 0), Rgba8Rows, Rgba8Point});
     RunCase(device, block, {"bc7/bilinear", 4, Sampler(1, 1, 0), Bc7BilinearRows, Bc7Bilinear});
+    RunLoadTests(device, block);
 }
 
 }

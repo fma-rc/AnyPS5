@@ -140,7 +140,7 @@ constexpr std::size_t fieldCount() {
 
 static_assert(fieldCount<ShaderInfo>() == 23, "ShaderInfo changed: update the info encoder");
 static_assert(fieldCount<BufferResource>() == 12, "BufferResource changed: update the info encoder");
-static_assert(fieldCount<ImageResource>() == 39, "ImageResource changed: update the info encoder");
+static_assert(fieldCount<ImageResource>() == 40, "ImageResource changed: update the info encoder");
 static_assert(fieldCount<SamplerResource>() == 8, "SamplerResource changed: update the info encoder");
 static_assert(fieldCount<SampledResourcePair>() == 3, "SampledResourcePair changed: update the info encoder");
 static_assert(fieldCount<StageInput>() == 5, "StageInput changed: update the info encoder");
@@ -715,6 +715,7 @@ void encodeShaderInfo(Writer& writer, const ShaderInfo& info) {
         out.Value(image.table);
         out.Value(image.tableOperation);
         out.Value(image.guestSample);
+        out.Value(image.guestLoad);
     });
     writer.Value(!info.runtimeImageModes.empty());
     writer.List(info.samplers, [](Writer& out, const SamplerResource& sampler) {
@@ -818,6 +819,7 @@ void decodeShaderInfo(Reader& reader, ShaderInfo& info) {
         in.Value(image.table);
         in.Value(image.tableOperation);
         in.Value(image.guestSample);
+        in.Value(image.guestLoad);
     });
     bool preparedImageModes = false;
     reader.Value(preparedImageModes);

@@ -101,6 +101,7 @@ struct ImageResource {
     std::uint32_t table = NoTable;
     TableOperation tableOperation = TableOperation::Supported;
     bool guestSample = false;
+    bool guestLoad = false;
 
     bool operator==(const ImageResource& other) const = default;
 };

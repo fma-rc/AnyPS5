@@ -1688,11 +1688,15 @@ private:
         const bool lodOnly = (sampleFlags & ~(RdnaImageSampleFlagLod | RdnaImageSampleFlagLevelZero)) == 0u && sampleFlags != 0u;
         const bool derivative2D = sampleFlags == (RdnaImageSampleFlagDerivative | (2u << RdnaImageSampleGradientCountShift));
         const bool implicitQuad = (m_program.Resources().stage == IrShaderStage::Pixel || m_program.Resources().stage == IrShaderStage::Compute) && (sampleFlags & ~(RdnaImageSampleFlagBias | RdnaImageSampleFlagAdjust)) == 0u;
-        const bool guestAccess = op == IrOpcode::ImageSampleRaw && fixedSampler && (lodOnly || derivative2D || implicitQuad) && memory.imageDimension == RdnaImageDimension::Dim2D && memory.dataBits == 32u && !memory.imagePacked;
+        const bool guestRead = op == IrOpcode::ImageRead && memory.imageByElements == 0u && memory.imageDimension == RdnaImageDimension::Dim2D && memory.dataBits == 32u && !memory.imagePacked;
+        const bool guestAccess = guestRead || (op == IrOpcode::ImageSampleRaw && fixedSampler && (lodOnly || derivative2D || implicitQuad) && memory.imageDimension == RdnaImageDimension::Dim2D && memory.dataBits == 32u && !memory.imagePacked);
         if (m_guestAccess.size() <= resource) m_guestAccess.resize(resource + 1u, true);
         m_guestAccess[resource] = m_guestAccess[resource] && guestAccess;
+        if (m_guestLoads.size() <= resource) m_guestLoads.resize(resource + 1u, false);
+        m_guestLoads[resource] = m_guestLoads[resource] || guestRead;
         std::uint32_t why = 0u;
-        if (op != IrOpcode::ImageSampleRaw) why = 1u;
+        if (guestRead) {
+        } else if (op != IrOpcode::ImageSampleRaw) why = 1u;
         else if (!fixedSampler) why = 2u;
         else if (!lodOnly && !derivative2D && !implicitQuad) why = 8u;
         else if (memory.imageDimension != RdnaImageDimension::Dim2D) why = 4u;
@@ -1706,6 +1710,7 @@ private:
         for (std::uint32_t resource = 0; resource < m_info.images.size(); ++resource) {
             auto& image = m_info.images[resource];
             image.guestSample = image.table != NoTable && image.tableOperation == TableOperation::Supported && !image.written && !image.atomic && resource < m_guestAccess.size() && m_guestAccess[resource];
+            image.guestLoad = image.guestSample && resource < m_guestLoads.size() && m_guestLoads[resource];
             if (image.table == NoTable) continue;
             std::uint32_t why = resource < m_guestWhy.size() ? m_guestWhy[resource] : 9u;
             if (image.tableOperation != TableOperation::Supported) why = 6u;
@@ -1752,6 +1757,7 @@ private:
     std::vector<HandlePatch> m_handlePatches;
     std::vector<MemoryPatch> m_memoryPatches;
     std::vector<bool> m_guestAccess;
+    std::vector<bool> m_guestLoads;
     std::vector<std::uint32_t> m_guestWhy;
     std::uint32_t m_guestFlags = 0u;
     // APS5_TRACE_BDA: address accesses seen by Collect (the first bdaTraceLimit are printed).

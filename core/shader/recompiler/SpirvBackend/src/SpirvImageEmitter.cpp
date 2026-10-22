@@ -1817,6 +1817,42 @@ void EmitGuestSample(SpirvValueEmitContext& ctx, const IrValue& inst, const Imag
     ctx.Define(inst, result);
 }
 
+void EmitGuestLoad(SpirvValueEmitContext& ctx, const IrValue& inst, const ImageResource& image, const TableAccessResult& access) {
+    auto& state = ctx.state;
+    const auto u32 = TypeU32(state);
+    const auto boolean = TypeBool(state);
+    const auto vec4 = TypeU32Vector(state, 4);
+    const auto& memory = ctx.Memory(inst);
+    const auto* address = ctx.ImageAddress(inst.Argument(1));
+    if (address == nullptr) ctx.Fail(inst, "has no image address");
+    const ImageEmitAccess emitAccess{inst, memory, image, *address};
+    if (memory.imageAddressComponents < 2u) ctx.Fail(inst, "has an image address with too few coordinate components");
+    const auto quad = [&](std::uint32_t base, std::uint32_t first) {
+        const auto value = state.module.AllocateId();
+        state.module.AddFunction(spv::OpCompositeConstruct, vec4, value, TableMapAt(state, base, first), TableMapAt(state, base, first + 1u), TableMapAt(state, base, first + 2u), TableMapAt(state, base, first + 3u));
+        return value;
+    };
+    const auto exec = ctx.Arg(inst, 2u);
+    const auto loaded = EmitValueIfElse(state, exec, vec4, [&] {
+        const auto element = Binary(state, spv::OpIAdd, u32, LoadTableMap(state, ConstantU32(state, ImageTableAbi::HeaderGuestElements)), Binary(state, spv::OpIMul, u32, access.element, ConstantU32(state, ImageTableAbi::GuestElementWords)));
+        const auto coord = state.module.AllocateId();
+        state.module.AddFunction(spv::OpCompositeConstruct, vec4, coord, AddressU32(ctx, emitAccess, 0u), AddressU32(ctx, emitAccess, 1u), LodU32(ctx, emitAccess), ConstantU32(state, 0u));
+        const auto memoryWords = Binary(state, spv::OpIAdd, u32, LoadTableMap(state, ConstantU32(state, ImageTableAbi::HeaderGuestMemory)), Binary(state, spv::OpIMul, u32, access.element, ConstantU32(state, ImageTableAbi::GuestMemoryWords)));
+        std::uint32_t fault = 0;
+        const auto texel = EmitGuestLoadCall(state, quad(element, 0u), quad(element, 4u), coord, quad(memoryWords, 0u), fault);
+        EmitTableFault(ctx, inst, access.word, LoadTableMap(state, ConstantU32(state, ImageTableAbi::HeaderGuestFault)), Binary(state, spv::OpINotEqual, boolean, fault, ConstantU32(state, 0u)));
+        const auto used = Binary(state, spv::OpIAdd, u32, LoadTableMap(state, ConstantU32(state, ImageTableAbi::HeaderGuestUsed)), access.element);
+        EmitIfCondition(state, Binary(state, spv::OpIEqual, boolean, LoadTableMap(state, used), ConstantU32(state, 0u)), [&] {
+            const auto pointer = state.module.AllocateId();
+            state.module.AddFunction(spv::OpAccessChain, TypeStorageBufferElementPointer(state), pointer, state.tableMapVariable, ConstantU32(state, 0u), used);
+            state.module.AddFunction(spv::OpStore, pointer, ConstantU32(state, 1u));
+        });
+        return texel;
+    }, [&] { return ConstantU32CompositeZero(state, 4u); });
+    const auto color = Unary(state, spv::OpBitcast, ImageVectorType(state, IrTextureNumericClass::Float, 4), loaded);
+    ctx.Define(inst, ResultVector(ctx, emitAccess, color, IrTextureNumericClass::Float, false, false));
+}
+
 }
 
 void EmitImageOperation(SpirvModule& module, const IrValue& value, std::uint32_t resultId) {
@@ -1874,7 +1910,7 @@ void EmitImage(SpirvValueEmitContext& ctx, const IrValue& inst) {
     const auto modes = base.table != NoTable ? state.program.Info().runtimeImageModes.at(memory.resource) : ResourceMaterializer::RuntimeImageModes(base);
     std::uint32_t tableSelector = 0u;
     std::uint32_t samplerGuard = 0u;
-    const bool guestCase = base.table != NoTable && base.guestSample && inst.Opcode() == IrOpcode::ImageSampleRaw;
+    const bool guestCase = base.table != NoTable && base.guestSample && (inst.Opcode() == IrOpcode::ImageSampleRaw || (base.guestLoad && inst.Opcode() == IrOpcode::ImageRead));
     TableAccessResult access;
     if (tables) {
         access = EmitTableAccess(ctx, inst, memory, base, tableSampler);
@@ -1959,7 +1995,8 @@ void EmitImage(SpirvValueEmitContext& ctx, const IrValue& inst) {
     state.runtimeImage = nullptr;
     if (guestCase) {
         EmitLabel(state, guestLabel);
-        EmitGuestSample(ctx, inst, base, access);
+        if (inst.Opcode() == IrOpcode::ImageRead) EmitGuestLoad(ctx, inst, base, access);
+        else EmitGuestSample(ctx, inst, base, access);
         incoming.insert(incoming.end(), {ctx.Def(&inst), state.currentLabel});
         ctx.definitions.erase(&inst);
         state.module.AddFunction(spv::OpBranch, merge);

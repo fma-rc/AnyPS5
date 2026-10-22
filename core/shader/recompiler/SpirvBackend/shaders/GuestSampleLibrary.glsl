@@ -972,6 +972,23 @@ uint anisoScale(uint table[64], uint index) {
     return (table[index >> 2] >> ((index & 3u) * 8u)) & 0xffu;
 }
 
+uint filterChannel(uint format, bool srgb, bool point, uint c, uint texels[8], uint tapWeights[8], uint tapLevels[8], uint tapCount, bool singleTexel, uint levelWeights[2]) {
+    if (format == 22u && point) return float32Point(texels[0]);
+    if (format == 7u) return unorm16Filter(texels, tapWeights, tapCount);
+    if (format == 22u) return float32Filter(texels, tapWeights, tapCount, singleTexel);
+    if (format == 179u || (srgb && c < 3u)) {
+        uint values[8];
+        uint weights[8];
+        for (uint i = 0u; i < 8u; ++i) {
+            values[i] = i < tapCount ? (format == 179u ? texels[i] : SrgbToLinear[texels[i]]) : 0u;
+            weights[i] = i < tapCount ? tapWeights[i] * levelWeights[tapLevels[i]] : 0u;
+        }
+        return floatFilter(values, weights, tapLevels, tapCount);
+    }
+    if (srgb) return srgbAlphaFilter(texels, tapWeights, tapLevels, tapCount, levelWeights);
+    return (format == 175u || format == 177u) ? bc45Filter(texels, tapWeights, tapLevels, tapCount, levelWeights) : unormFilter(texels, tapWeights, tapLevels, tapCount, levelWeights);
+}
+
 uvec4 sampleGuest(uvec4 tlow, uvec4 thigh, uvec4 ssharp, uvec4 row, uvec4 derivatives, uvec4 memory, out uint fault) {
     faulted = false;
     guestOutside = false;
@@ -1182,37 +1199,55 @@ uvec4 sampleGuest(uvec4 tlow, uvec4 thigh, uvec4 ssharp, uvec4 row, uvec4 deriva
         }
         uint texels[8];
         for (uint i = 0u; i < 8u; ++i) texels[i] = i < tapCount ? tapTexels[i][c] : 0u;
-        if (format == 22u && magFilter == 0u) {
-            value[c] = float32Point(texels[0]);
-        } else if (format == 7u) {
-            value[c] = unorm16Filter(texels, tapWeights, tapCount);
-        } else if (format == 22u) {
-            value[c] = float32Filter(texels, tapWeights, tapCount, singleTexel);
-        } else if (format == 179u) {
-            uint values[8];
-            uint weights[8];
-            for (uint i = 0u; i < 8u; ++i) {
-                values[i] = i < tapCount ? texels[i] : 0u;
-                weights[i] = i < tapCount ? tapWeights[i] * levelWeights[tapLevels[i]] : 0u;
-            }
-            value[c] = floatFilter(values, weights, tapLevels, tapCount);
-        } else if (srgb && c < 3u) {
-            uint values[8];
-            uint weights[8];
-            for (uint i = 0u; i < 8u; ++i) {
-                values[i] = i < tapCount ? SrgbToLinear[texels[i]] : 0u;
-                weights[i] = i < tapCount ? tapWeights[i] * levelWeights[tapLevels[i]] : 0u;
-            }
-            value[c] = floatFilter(values, weights, tapLevels, tapCount);
-        } else if (srgb) {
-            value[c] = srgbAlphaFilter(texels, tapWeights, tapLevels, tapCount, levelWeights);
-        } else {
-            value[c] = (format == 175u || format == 177u) ? bc45Filter(texels, tapWeights, tapLevels, tapCount, levelWeights) : unormFilter(texels, tapWeights, tapLevels, tapCount, levelWeights);
-        }
+        value[c] = filterChannel(format, srgb, magFilter == 0u, c, texels, tapWeights, tapLevels, tapCount, singleTexel, levelWeights);
     }
     uvec4 selected = uvec4(selectChannel(t3 & 7u, value), selectChannel((t3 >> 3) & 7u, value), selectChannel((t3 >> 6) & 7u, value), selectChannel((t3 >> 9) & 7u, value));
     if (faulted || guestOutside) return uvec4(0u);
     fault = 0u;
+    return selected;
+}
+
+uvec4 loadGuest(uvec4 tlow, uvec4 thigh, uvec4 coord, uvec4 memory, out uint fault) {
+    faulted = false;
+    guestOutside = false;
+    fault = 1u;
+    uint64_t base = (uint64_t(tlow.x) | (uint64_t(tlow.y & 0xffu) << 32)) << 8;
+    guestOrigin = base;
+    guestDevice = uint64_t(memory.x) | (uint64_t(memory.y) << 32);
+    guestBytes = uint64_t(memory.z);
+    uint t1 = tlow.y;
+    uint t2 = tlow.z;
+    uint t3 = tlow.w;
+    uint format = (t1 >> 20) & 0x1ffu;
+    uint width = (((t1 >> 30) & 3u) | ((t2 & 0xfffu) << 2)) + 1u;
+    uint height = ((t2 >> 14) & 0x3fffu) + 1u;
+    uint baseLevel = (t3 >> 12) & 0xfu;
+    uint lastLevel = (t3 >> 16) & 0xfu;
+    uint swizzle = (t3 >> 20) & 0x1fu;
+    uint type = (t3 >> 28) & 0xfu;
+    uint maxMip = (thigh.y >> 4) & 0xfu;
+    bool knownFormat = format == 7u || format == 22u || format == 56u || format == 169u || format == 170u || format == 175u || format == 177u || format == 179u || format == 181u || format == 182u;
+    if (!knownFormat || type != 9u || baseLevel != 0u || maxMip != lastLevel) return uvec4(0u);
+    uint levelIndex = coord.z;
+    Level level = levelLayout(width, height, lastLevel + 1u, swizzle, bytesPerElementOf(format), min(levelIndex, lastLevel));
+    if (faulted) return uvec4(0u);
+    fault = 0u;
+    if (levelIndex > lastLevel || coord.x >= level.width || coord.y >= level.height) return uvec4(0u);
+    uvec4 texel = fetchTexel(base, int(coord.x), int(coord.y), format, level, swizzle);
+    bool srgb = format == 170u || format == 182u;
+    uint tapWeights[8] = uint[](65536u, 0u, 0u, 0u, 0u, 0u, 0u, 0u);
+    uint tapLevels[8] = uint[](0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u);
+    uint levelWeights[2] = uint[](256u, 0u);
+    uvec4 value;
+    for (uint c = 0u; c < 4u; ++c) {
+        uint texels[8] = uint[](texel[c], 0u, 0u, 0u, 0u, 0u, 0u, 0u);
+        value[c] = filterChannel(format, srgb, true, c, texels, tapWeights, tapLevels, 1u, true, levelWeights);
+    }
+    uvec4 selected = uvec4(selectChannel(t3 & 7u, value), selectChannel((t3 >> 3) & 7u, value), selectChannel((t3 >> 6) & 7u, value), selectChannel((t3 >> 9) & 7u, value));
+    if (faulted || guestOutside) {
+        fault = 1u;
+        return uvec4(0u);
+    }
     return selected;
 }
 

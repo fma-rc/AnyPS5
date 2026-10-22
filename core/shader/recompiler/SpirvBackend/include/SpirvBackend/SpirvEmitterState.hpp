@@ -157,6 +157,7 @@ struct SpirvEmitterState {
     std::uint32_t srgbTableVariable = 0;
     std::array<std::uint32_t, 7> guestSampleVariables {};
     std::uint32_t guestSampleFunction = 0;
+    std::uint32_t guestLoadFunction = 0;
     std::uint32_t gdsVariable = 0;
     std::uint32_t gdsLength = 0;
     std::uint32_t pushConstantVariable = 0;
