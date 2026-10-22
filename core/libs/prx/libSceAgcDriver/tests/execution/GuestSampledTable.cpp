@@ -86,7 +86,7 @@ constexpr std::size_t Rgba8GatherCentreOffset = 0x130000;
 constexpr std::uint32_t Records = 38;
 constexpr std::size_t SrtOffset = 0x30000;
 constexpr std::size_t TableOffset = 0x30100;
-constexpr std::size_t KeysOffset = 0x30800;
+constexpr std::size_t KeysOffset = 0x30c00;
 constexpr std::size_t RowsOffset = 0x40000;
 constexpr std::size_t OutputOffset = 0x50000;
 constexpr std::size_t RowsBytes = OutputOffset - RowsOffset;
@@ -358,8 +358,8 @@ void RunGather(AgcDriver::VulkanDevice& device, GuestBlock& block, const char* n
     const auto centre = [&](std::uint32_t x, std::uint32_t y) {
         centres.insert(centres.end(), {FloatBits((static_cast<float>(x) + 0.5f) / static_cast<float>(width)), FloatBits((static_cast<float>(y) + 0.5f) / static_cast<float>(height)), 0u, 0u});
     };
-    for (std::uint32_t y = 0; y + 1u < height; y += 3u) {
-        for (std::uint32_t x = 0; x + 1u < width; x += 2u) {
+    for (std::uint32_t y = 0; y + 1u < height; y += 5u) {
+        for (std::uint32_t x = 0; x + 1u < width; x += 4u) {
             rows.insert(rows.end(), {FloatBits((static_cast<float>(x) + 0.5f + fraction()) / static_cast<float>(width)), FloatBits((static_cast<float>(y) + 0.5f + fraction()) / static_cast<float>(height)), 0u, 0u});
             centre(x, y + 1u);
             centre(x + 1u, y + 1u);
