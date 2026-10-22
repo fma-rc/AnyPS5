@@ -1232,7 +1232,7 @@ uvec4 loadGuest(uvec4 tlow, uvec4 thigh, uvec4 coord, uvec4 memory, out uint fau
     Level level = levelLayout(width, height, lastLevel + 1u, swizzle, bytesPerElementOf(format), min(levelIndex, lastLevel));
     if (faulted) return uvec4(0u);
     fault = 0u;
-    if (levelIndex > lastLevel || coord.x >= level.width || coord.y >= level.height) return uvec4(0u);
+    if (levelIndex > lastLevel || levelIndex < (((t1 >> 8) & 0xfffu) >> 8) || coord.x >= level.width || coord.y >= level.height) return uvec4(0u);
     uvec4 texel = fetchTexel(base, int(coord.x), int(coord.y), format, level, swizzle);
     bool srgb = format == 170u || format == 182u;
     uint tapWeights[8] = uint[](65536u, 0u, 0u, 0u, 0u, 0u, 0u, 0u);
