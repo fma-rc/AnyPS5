@@ -102,6 +102,7 @@ struct ImageResource {
     TableOperation tableOperation = TableOperation::Supported;
     bool guestSample = false;
     bool guestLoad = false;
+    bool guestGather = false;
 
     bool operator==(const ImageResource& other) const = default;
 };

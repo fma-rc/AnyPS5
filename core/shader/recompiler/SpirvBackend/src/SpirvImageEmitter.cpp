@@ -1760,10 +1760,11 @@ void EmitGuestSample(SpirvValueEmitContext& ctx, const IrValue& inst, const Imag
     if (layout.coord == NoImageComponent || memory.imageAddressComponents < layout.coord + 2u) ctx.Fail(inst, "has an image address with too few coordinate components");
     const auto u = AddressU32(ctx, emitAccess, layout.coord);
     const auto v = AddressU32(ctx, emitAccess, layout.coord + 1u);
+    const bool gather = inst.Opcode() == IrOpcode::ImageGatherRaw;
     const auto lod = HasFlag(memory, RdnaImageSampleFlagLod) ? AddressU32(ctx, emitAccess, layout.lod) : ConstantU32(state, 0u);
     const bool derivative = HasFlag(memory, RdnaImageSampleFlagDerivative);
     if (derivative && (layout.gradX == NoImageComponent || layout.gradY == NoImageComponent || memory.imageAddressComponents < layout.gradY + 2u)) ctx.Fail(inst, "has an image address with too few gradient components");
-    const bool implicit = (memory.imageSampleFlags & ~(RdnaImageSampleFlagBias | RdnaImageSampleFlagAdjust)) == 0u;
+    const bool implicit = !gather && (memory.imageSampleFlags & ~(RdnaImageSampleFlagBias | RdnaImageSampleFlagAdjust)) == 0u;
     const bool bias = HasFlag(memory, RdnaImageSampleFlagBias);
     if (bias && (!implicit || layout.bias == NoImageComponent)) ctx.Fail(inst, "has a guest sample bias without implicit derivatives");
     std::uint32_t derivatives = 0;
@@ -1790,7 +1791,7 @@ void EmitGuestSample(SpirvValueEmitContext& ctx, const IrValue& inst, const Imag
         derivatives = ConstantU32CompositeZero(state, 4u);
     }
     const auto rowLod = bias ? AddressU32(ctx, emitAccess, layout.bias) : lod;
-    const auto rowMode = derivative ? 1u : implicit ? (bias ? 2u : 1u) : 0u;
+    const auto rowMode = gather ? 3u + ImageGatherComponent(EffectiveDmask(memory)) : derivative ? 1u : implicit ? (bias ? 2u : 1u) : 0u;
     const auto quad = [&](std::uint32_t base, std::uint32_t first) {
         const auto value = state.module.AllocateId();
         state.module.AddFunction(spv::OpCompositeConstruct, vec4, value, TableMapAt(state, base, first), TableMapAt(state, base, first + 1u), TableMapAt(state, base, first + 2u), TableMapAt(state, base, first + 3u));
@@ -1910,7 +1911,7 @@ void EmitImage(SpirvValueEmitContext& ctx, const IrValue& inst) {
     const auto modes = base.table != NoTable ? state.program.Info().runtimeImageModes.at(memory.resource) : ResourceMaterializer::RuntimeImageModes(base);
     std::uint32_t tableSelector = 0u;
     std::uint32_t samplerGuard = 0u;
-    const bool guestCase = base.table != NoTable && base.guestSample && (inst.Opcode() == IrOpcode::ImageSampleRaw || (base.guestLoad && inst.Opcode() == IrOpcode::ImageRead));
+    const bool guestCase = base.table != NoTable && base.guestSample && (inst.Opcode() == IrOpcode::ImageSampleRaw || (base.guestLoad && inst.Opcode() == IrOpcode::ImageRead) || (base.guestGather && inst.Opcode() == IrOpcode::ImageGatherRaw));
     TableAccessResult access;
     if (tables) {
         access = EmitTableAccess(ctx, inst, memory, base, tableSampler);

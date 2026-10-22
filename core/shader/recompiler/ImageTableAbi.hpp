@@ -133,6 +133,10 @@ constexpr std::uint32_t TableHeader(std::uint32_t table) {
     return HeaderWords + TableWords * table;
 }
 
+constexpr bool GuestGatherSupported(const std::array<std::uint32_t, 8>& image) {
+    return ((image[3] >> 16u) & 0xfu) == 0u && ((image[5] >> 4u) & 0xfu) == 0u;
+}
+
 constexpr bool GuestLoadSupported(const std::array<std::uint32_t, 8>& image) {
     const std::uint32_t format = (image[1] >> 20u) & 0x1ffu;
     const std::uint32_t baseLevel = (image[3] >> 12u) & 0xfu;

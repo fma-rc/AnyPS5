@@ -1034,7 +1034,8 @@ uvec4 sampleGuest(uvec4 tlow, uvec4 thigh, uvec4 ssharp, uvec4 row, uvec4 deriva
     if (!supported) {
         return uvec4(0u);
     }
-    if (row.w > 2u) return uvec4(0u);
+    bool gather = row.w >= 3u;
+    if (row.w > 6u || (gather && (lastLevel != 0u || anisoTaps))) return uvec4(0u);
     int bias = 0;
     if (row.w == 2u) {
         float value = uintBitsToFloat(row.z);
@@ -1150,7 +1151,7 @@ uvec4 sampleGuest(uvec4 tlow, uvec4 thigh, uvec4 ssharp, uvec4 row, uvec4 deriva
         }
         int64_t fx = packInt2x32(fixedTexelCoordinate(row.x, level.width));
         int64_t fy = packInt2x32(fixedTexelCoordinate(row.y, level.height));
-        if (magFilter == 0u) {
+        if (magFilter == 0u && !gather) {
             int x = wrapIndex(int(fx >> 8), int(level.width), clampX);
             int y = wrapIndex(int(fy >> 8), int(level.height), clampY);
             tapTexels[tapCount] = fetchTexel(base, x, y, format, level, swizzle);
@@ -1180,6 +1181,25 @@ uvec4 sampleGuest(uvec4 tlow, uvec4 thigh, uvec4 ssharp, uvec4 row, uvec4 deriva
         tapWeights[tapCount + 3u] = wx * wy;
         for (uint i = 0u; i < 4u; ++i) tapLevels[tapCount + i] = slot;
         tapCount += 4u;
+    }
+    if (gather) {
+        uint selector = (t3 >> (3u * (row.w - 3u))) & 7u;
+        uint unitWeights[8] = uint[](65536u, 0u, 0u, 0u, 0u, 0u, 0u, 0u);
+        uint unitLevels[8] = uint[](0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u);
+        uint unitLevelWeights[2] = uint[](256u, 0u);
+        const uint order[4] = uint[](2u, 3u, 1u, 0u);
+        uvec4 gathered;
+        for (uint i = 0u; i < 4u; ++i) {
+            uvec4 converted;
+            for (uint c = 0u; c < 4u; ++c) {
+                uint texels[8] = uint[](tapTexels[order[i]][c], 0u, 0u, 0u, 0u, 0u, 0u, 0u);
+                converted[c] = filterChannel(format, srgb, true, c, texels, unitWeights, unitLevels, 1u, true, unitLevelWeights);
+            }
+            gathered[i] = selectChannel(selector, converted);
+        }
+        if (faulted || guestOutside) return uvec4(0u);
+        fault = 0u;
+        return gathered;
     }
     uvec4 value;
     for (uint c = 0u; c < 4u; ++c) {
