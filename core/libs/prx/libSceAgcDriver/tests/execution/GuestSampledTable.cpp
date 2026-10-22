@@ -353,7 +353,7 @@ void RunGather(AgcDriver::VulkanDevice& device, GuestBlock& block, const char* n
     std::uint32_t seed = 0x9e3779b9u;
     const auto fraction = [&] {
         seed = seed * 1664525u + 1013904223u;
-        return static_cast<float>(1u + (seed >> 29u)) / 8.0f;
+        return static_cast<float>(1u + (seed >> 29u)) / 9.0f;
     };
     const auto centre = [&](std::uint32_t x, std::uint32_t y) {
         centres.insert(centres.end(), {FloatBits((static_cast<float>(x) + 0.5f) / static_cast<float>(width)), FloatBits((static_cast<float>(y) + 0.5f) / static_cast<float>(height)), 0u, 0u});
