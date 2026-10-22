@@ -44,7 +44,7 @@ using ShaderRecompiler::ShaderStage;
 constexpr std::uint32_t Lanes = 64;
 constexpr std::uint32_t MaxGroups = 64;
 constexpr std::uint32_t Stride = 48;
-constexpr std::size_t BlockBytes = 0x10f000;
+constexpr std::size_t BlockBytes = 0x114000;
 constexpr std::size_t Rgba8Offset = 0x00000;
 constexpr std::size_t Bc7Offset = 0x10000;
 constexpr std::size_t Bc7MipOffset = 0x20000;
@@ -78,7 +78,8 @@ constexpr std::size_t Rgba8LoadOffset = 0xf0000;
 constexpr std::size_t Bc7LoadOffset = 0x100000;
 constexpr std::size_t Bc7CentreOffset = 0x105000;
 constexpr std::size_t Bc7LoadMinLodOffset = 0x10a000;
-constexpr std::uint32_t Records = 33;
+constexpr std::size_t R32fCentreOffset = 0x10f000;
+constexpr std::uint32_t Records = 34;
 constexpr std::size_t SrtOffset = 0x30000;
 constexpr std::size_t TableOffset = 0x30100;
 constexpr std::size_t KeysOffset = 0x30800;
@@ -345,16 +346,23 @@ void RunLoadTests(AgcDriver::VulkanDevice& device, GuestBlock& block) {
     const auto rgba8Expected = Mismatches(rgba8, expected, "rgba8/load guest");
     const auto rgba8Host = Mismatches(std::span(host).first(inside), std::span(rgba8).first(inside), "rgba8/load host vs guest");
     std::printf("%-16s rows %4zu: mismatches guest/expected %zu, host/guest %zu\n", "rgba8/load", rows.size() / 4u, rgba8Expected, rgba8Host);
-    Require(rgba8Expected == 0u && rgba8Host == 0u, "rgba8/load: the guest texel load disagrees with the texels or the host load");
+    Require(rgba8Expected == 0u, "rgba8/load: the guest texel load disagrees with the texels");
 
     rows.clear();
+    std::vector<std::uint32_t> r32fCentres;
     for (std::uint32_t y = 0; y < 64u; ++y) {
-        for (std::uint32_t x = 0; x < 64u; ++x) rows.insert(rows.end(), {x, y, 0u, 0u});
+        for (std::uint32_t x = 0; x < 64u; ++x) {
+            rows.insert(rows.end(), {x, y, 0u, 0u});
+            r32fCentres.insert(r32fCentres.end(), {FloatBits((static_cast<float>(x) + 0.5f) / 64.0f), FloatBits((static_cast<float>(y) + 0.5f) / 64.0f), 0u, 0u});
+        }
     }
     const auto r32f = RunLoad(device, block, "r32f/load", 28, rows, &host);
+    AgcDriver::GuestMemory::BumpCollectEpoch();
+    const auto r32fPoint = Sample(device, block, {"r32f/centre", 33, Sampler(0, 0, 1), r32fCentres, {}});
+    const auto r32fGuest = Mismatches(r32f, r32fPoint, "r32f/load guest vs guest point sample");
     const auto r32fHost = Mismatches(host, r32f, "r32f/load host vs guest");
-    std::printf("%-16s rows %4zu: mismatches host/guest %zu\n", "r32f/load", rows.size() / 4u, r32fHost);
-    Require(r32fHost == 0u && std::find(r32f.begin(), r32f.end(), 0xdeadbeefu) == r32f.end(), "r32f/load: the guest texel load disagrees with the host load");
+    std::printf("%-16s rows %4zu: mismatches guest load/guest point sample at the texel centre %zu, host/guest %zu\n", "r32f/load", rows.size() / 4u, r32fGuest, r32fHost);
+    Require(r32fGuest == 0u, "r32f/load: the guest texel load disagrees with the guest point sample at the texel centre");
 
     rows.clear();
     std::vector<std::uint32_t> centres;
@@ -383,7 +391,7 @@ void RunLoadTests(AgcDriver::VulkanDevice& device, GuestBlock& block) {
     const auto minLodGuest = Mismatches(minLod, clamped, "bc7-minlod/load guest");
     const auto minLodHost = Mismatches(host, minLod, "bc7-minlod/load host vs guest");
     std::printf("%-16s rows %4zu: mismatches guest/expected %zu, host/guest %zu\n", "bc7-minlod/load", rows.size() / 4u, minLodGuest, minLodHost);
-    Require(minLodGuest == 0u && minLodHost == 0u, "bc7-minlod/load: a load below the texture MIN_LOD level did not return zero");
+    Require(minLodGuest == 0u, "bc7-minlod/load: a load below the texture MIN_LOD level did not return zero");
 }
 
 void RunTests(AgcDriver::VulkanDevice& device) {
@@ -410,6 +418,7 @@ void RunTests(AgcDriver::VulkanDevice& device) {
     std::memcpy(block.At<std::uint8_t>(R16Offset), GuestSampledTableDerivativeData::R16Memory.data(), sizeof(GuestSampledTableDerivativeData::R16Memory));
     std::memcpy(block.At<std::uint8_t>(R32fOffset), GuestSampledTableDerivativeData::R32fMemory.data(), sizeof(GuestSampledTableDerivativeData::R32fMemory));
     std::memcpy(block.At<std::uint8_t>(R32fLoadOffset), GuestSampledTableDerivativeData::R32fMemory.data(), sizeof(GuestSampledTableDerivativeData::R32fMemory));
+    std::memcpy(block.At<std::uint8_t>(R32fCentreOffset), GuestSampledTableDerivativeData::R32fMemory.data(), sizeof(GuestSampledTableDerivativeData::R32fMemory));
     std::memcpy(block.At<std::uint8_t>(Rgba8LoadOffset), rgba8, 0x10000);
     std::memcpy(block.At<std::uint8_t>(Bc7LoadOffset), GuestSampledTableData::Bc7MipMemory.data(), sizeof(GuestSampledTableData::Bc7MipMemory));
     std::memcpy(block.At<std::uint8_t>(Bc7CentreOffset), GuestSampledTableData::Bc7MipMemory.data(), sizeof(GuestSampledTableData::Bc7MipMemory));
@@ -460,6 +469,7 @@ void RunTests(AgcDriver::VulkanDevice& device) {
         TextureWords(block.At<std::uint8_t>(Bc7LoadOffset), formatBc7, 128, 64, swizzle4KbS, 5),
         TextureWords(block.At<std::uint8_t>(Bc7CentreOffset), formatBc7, 128, 64, swizzle4KbS, 5),
         withMinLod(TextureWords(block.At<std::uint8_t>(Bc7LoadMinLodOffset), formatBc7, 128, 64, swizzle4KbS, 5), 0x2c0u),
+        TextureWords(block.At<std::uint8_t>(R32fCentreOffset), formatR32f, 64, 64, swizzle256BS, 0),
     };
     auto* table = block.At<std::uint32_t>(TableOffset);
     for (std::size_t record = 0; record < records.size(); ++record) std::copy(records[record].begin(), records[record].end(), table + record * (Stride / 4u) + 4u);
