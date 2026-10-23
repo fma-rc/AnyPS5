@@ -18,6 +18,7 @@
 #include "GuestSampledTableWrapData.hpp"
 #include "GuestSampledTableNpotAnisoData.hpp"
 #include "GuestSampledTableSrgb8Data.hpp"
+#include "GuestSampledTableFloatData.hpp"
 #include <algorithm>
 #include <array>
 #include <bit>
@@ -50,7 +51,7 @@ using ShaderRecompiler::ShaderStage;
 constexpr std::uint32_t Lanes = 64;
 constexpr std::uint32_t MaxGroups = 64;
 constexpr std::uint32_t Stride = 48;
-constexpr std::size_t BlockBytes = 0x1d8000;
+constexpr std::size_t BlockBytes = 0x2e0000;
 constexpr std::size_t Rgba8Offset = 0x00000;
 constexpr std::size_t Bc7Offset = 0x10000;
 constexpr std::size_t Bc7MipOffset = 0x20000;
@@ -107,7 +108,10 @@ constexpr std::uint32_t Rgba8PipeBankXor = 0x5a00;
 constexpr std::size_t Rgba8SrgbBilinearOffset = 0x1a8000;
 constexpr std::size_t Rgba8SrgbPointOffset = 0x1b8000;
 constexpr std::size_t Rgba8Srgb256BOffset = 0x1c8000;
-constexpr std::uint32_t Records = 55;
+constexpr std::size_t PlainOffset = 0x1e0000;
+constexpr std::size_t PlainSlotBytes = 0x20000;
+constexpr std::uint32_t PlainRecord = 55;
+constexpr std::uint32_t Records = 63;
 constexpr std::size_t SrtOffset = 0x30000;
 constexpr std::size_t TableOffset = 0x30100;
 constexpr std::size_t KeysOffset = 0x30c00;
@@ -233,14 +237,43 @@ std::uint32_t StandardOffset4(std::uint32_t x, std::uint32_t y) {
     return offset & 0xffffu;
 }
 
-std::uint32_t XorOffset4(std::uint32_t swizzle, std::uint32_t x, std::uint32_t y) {
-    const auto* equation = AgcDriver::Graphics::FindTextureSwizzleEquation(swizzle, 4u);
-    Require(equation != nullptr, "guest sampled table: no XOR swizzle equation for 4-byte elements");
+std::uint32_t StandardOffset256(std::uint32_t bytes, std::uint32_t x, std::uint32_t y) {
+    switch (bytes) {
+        case 1u: return ((y << 4u) & 0xf0u) | (x & 0xfu);
+        case 2u: return ((y << 4u) & 0x70u) | ((x << 1u) & 0xeu) | ((x << 4u) & 0x80u);
+        case 4u: return ((y << 4u) & 0x70u) | ((x << 2u) & 0xcu) | ((x << 5u) & 0x80u);
+        default: return ((y << 4u) & 0x30u) | ((x << 3u) & 0x8u) | ((x << 5u) & 0xc0u);
+    }
+}
+
+std::uint32_t SurfaceOffset(std::uint32_t swizzle, std::uint32_t bytes, std::uint32_t width, std::uint32_t x, std::uint32_t y) {
+    const auto log2Bytes = static_cast<std::uint32_t>(std::countr_zero(bytes));
+    if (swizzle == 0u) {
+        const auto align = 256u / bytes;
+        return (y * ((width + align - 1u) / align * align) + x) * bytes;
+    }
+    const auto log2Elements = (swizzle == 1u ? 8u : 16u) - log2Bytes;
+    const auto blockWidth = 1u << ((log2Elements + 1u) / 2u);
+    const auto blockHeight = 1u << (log2Elements / 2u);
+    const auto block = (y / blockHeight) * ((width + blockWidth - 1u) / blockWidth) + x / blockWidth;
+    if (swizzle == 1u) return block * 256u + StandardOffset256(bytes, x % blockWidth, y % blockHeight);
+    const auto* equation = AgcDriver::Graphics::FindTextureSwizzleEquation(swizzle, bytes);
+    Require(equation != nullptr, "guest sampled table: no XOR swizzle equation for the element size");
     const auto coordinate = (x & 0xfffu) | ((y & 0xfffu) << 12u);
     std::uint32_t offset = 0;
     for (std::uint32_t bit = 0; bit < 16u; ++bit) offset |= static_cast<std::uint32_t>(std::popcount(coordinate & equation->bits[bit]) & 1) << bit;
-    return offset ^ Rgba8PipeBankXor;
+    return block * 65536u + (offset ^ Rgba8PipeBankXor);
 }
+
+struct PlainCase {
+    const char* name;
+    std::uint32_t format;
+    std::uint32_t bytes;
+    std::uint32_t swizzle;
+    bool bilinear;
+    const std::uint32_t* linear;
+    std::span<const std::uint32_t> expected;
+};
 
 class GuestBlock {
 public:
@@ -520,8 +553,8 @@ void RunTests(AgcDriver::VulkanDevice& device) {
     for (std::uint32_t y = 0; y < 68u; ++y) {
         for (std::uint32_t x = 0; x < 120u; ++x) {
             std::memcpy(rgba8 + StandardOffset4(x, y), linear + (y * 120u + x) * 4u, 4u);
-            std::memcpy(block.At<std::uint8_t>(Rgba8RenderTargetOffset) + XorOffset4(27u, x, y), linear + (y * 120u + x) * 4u, 4u);
-            std::memcpy(block.At<std::uint8_t>(Rgba8DepthOffset) + XorOffset4(24u, x, y), linear + (y * 120u + x) * 4u, 4u);
+            std::memcpy(block.At<std::uint8_t>(Rgba8RenderTargetOffset) + SurfaceOffset(27u, 4u, 120u, x, y), linear + (y * 120u + x) * 4u, 4u);
+            std::memcpy(block.At<std::uint8_t>(Rgba8DepthOffset) + SurfaceOffset(24u, 4u, 120u, x, y), linear + (y * 120u + x) * 4u, 4u);
             std::memcpy(block.At<std::uint8_t>(Rgba8Srgb256BOffset) + (((y >> 3u) * 15u + (x >> 3u)) << 8u) + (StandardOffset4(x & 7u, y & 7u) & 0xffu), linear + (y * 120u + x) * 4u, 4u);
         }
     }
@@ -564,6 +597,30 @@ void RunTests(AgcDriver::VulkanDevice& device) {
     constexpr std::uint32_t formatBc1Srgb = 170;
     constexpr std::uint32_t formatBc4 = 175;
     constexpr std::uint32_t formatBc5 = 177;
+    namespace Float = GuestSampledTableFloatData;
+    const std::array<PlainCase, 8> plainCases{{
+        {"rgba16f/bilinear", 71u, 8u, 0u, true, Float::Rgba16fLinear.data(), Float::Rgba16fBilinear},
+        {"rgba16f-256b/point", 71u, 8u, 1u, false, Float::Rgba16fLinear.data(), Float::Rgba16fPoint},
+        {"r16f-rx/bilinear", 13u, 2u, 27u, true, Float::R16fLinear.data(), Float::R16fBilinear},
+        {"r16f/point", 13u, 2u, 0u, false, Float::R16fLinear.data(), Float::R16fPoint},
+        {"r11g11b10f-rx/bilinear", 36u, 4u, 27u, true, Float::R11g11b10fLinear.data(), Float::R11g11b10fBilinear},
+        {"r11g11b10f-256b/point", 36u, 4u, 1u, false, Float::R11g11b10fLinear.data(), Float::R11g11b10fPoint},
+        {"r8-256b/bilinear", 1u, 1u, 1u, true, Float::R8Linear.data(), Float::R8Bilinear},
+        {"r8-rx/point", 1u, 1u, 27u, false, Float::R8Linear.data(), Float::R8Point},
+    }};
+    for (std::size_t index = 0; index < plainCases.size(); ++index) {
+        const auto& plain = plainCases[index];
+        const auto* source = reinterpret_cast<const std::uint8_t*>(plain.linear);
+        auto* target = block.At<std::uint8_t>(PlainOffset + index * PlainSlotBytes);
+        for (std::uint32_t y = 0; y < 68u; ++y) {
+            for (std::uint32_t x = 0; x < 120u; ++x) std::memcpy(target + SurfaceOffset(plain.swizzle, plain.bytes, 120u, x, y), source + SurfaceOffset(0u, plain.bytes, 120u, x, y), plain.bytes);
+        }
+    }
+    const auto plainWords = [&](std::size_t index) {
+        const auto& plain = plainCases[index];
+        const auto pipeBankXor = plain.swizzle == 27u ? Rgba8PipeBankXor : 0u;
+        return TextureWords(block.At<std::uint8_t>(PlainOffset + index * PlainSlotBytes + pipeBankXor), plain.format, 120, 68, plain.swizzle, 0);
+    };
     const std::array<std::array<std::uint32_t, 8>, Records> records{
         TextureWords(block.At<std::uint8_t>(Rgba8Offset), formatRgba8, 120, 68, swizzle64KbS, 0),
         TextureWords(block.At<std::uint8_t>(Bc7Offset), formatBc7, 72, 40, swizzle4KbS, 0),
@@ -620,6 +677,7 @@ void RunTests(AgcDriver::VulkanDevice& device) {
         TextureWords(block.At<std::uint8_t>(Rgba8SrgbBilinearOffset), formatRgba8Srgb, 120, 68, swizzle64KbS, 0),
         TextureWords(block.At<std::uint8_t>(Rgba8SrgbPointOffset), formatRgba8Srgb, 120, 68, swizzle64KbS, 0),
         TextureWords(block.At<std::uint8_t>(Rgba8Srgb256BOffset), formatRgba8Srgb, 120, 68, swizzle256BS, 0),
+        plainWords(0), plainWords(1), plainWords(2), plainWords(3), plainWords(4), plainWords(5), plainWords(6), plainWords(7),
     };
     auto* table = block.At<std::uint32_t>(TableOffset);
     for (std::size_t record = 0; record < records.size(); ++record) std::copy(records[record].begin(), records[record].end(), table + record * (Stride / 4u) + 4u);
@@ -669,6 +727,10 @@ void RunTests(AgcDriver::VulkanDevice& device) {
     RunCase(device, block, {"rgba8-srgb/bilinear", 52, Sampler(1, 1, 0), Rgba8Rows, GuestSampledTableSrgb8Data::Rgba8SrgbBilinear});
     RunCase(device, block, {"rgba8-srgb/point", 53, Sampler(0, 0, 0), Rgba8Rows, GuestSampledTableSrgb8Data::Rgba8SrgbPoint});
     RunCase(device, block, {"rgba8-srgb-256b/bilinear", 54, Sampler(1, 1, 0), Rgba8Rows, GuestSampledTableSrgb8Data::Rgba8SrgbBilinear});
+    for (std::size_t index = 0; index < plainCases.size(); ++index) {
+        const auto& plain = plainCases[index];
+        RunCase(device, block, {plain.name, static_cast<std::uint32_t>(PlainRecord + index), plain.bilinear ? Sampler(1, 1, 0) : Sampler(0, 0, 0), Rgba8Rows, plain.expected});
+    }
     RunCase(device, block, {"bc7/point", 1, Sampler(0, 0, 0), Bc7PointRows, Bc7Point});
     RunCase(device, block, {"bc7-mips/point", 2, Sampler(0, 0, 1), Bc7MipRows, Bc7MipPoint});
     RunCase(device, block, {"rgba8/point", 3, Sampler(0, 0, 0), Rgba8Rows, Rgba8Point});
