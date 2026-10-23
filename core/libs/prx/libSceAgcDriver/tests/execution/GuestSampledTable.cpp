@@ -19,6 +19,7 @@
 #include "GuestSampledTableNpotAnisoData.hpp"
 #include "GuestSampledTableSrgb8Data.hpp"
 #include "GuestSampledTableFloatData.hpp"
+#include "GuestSampledTableArrayData.hpp"
 #include <algorithm>
 #include <array>
 #include <bit>
@@ -51,7 +52,7 @@ using ShaderRecompiler::ShaderStage;
 constexpr std::uint32_t Lanes = 64;
 constexpr std::uint32_t MaxGroups = 64;
 constexpr std::uint32_t Stride = 48;
-constexpr std::size_t BlockBytes = 0x2e0000;
+constexpr std::size_t BlockBytes = 0x320000;
 constexpr std::size_t Rgba8Offset = 0x00000;
 constexpr std::size_t Bc7Offset = 0x10000;
 constexpr std::size_t Bc7MipOffset = 0x20000;
@@ -111,7 +112,12 @@ constexpr std::size_t Rgba8Srgb256BOffset = 0x1d0000;
 constexpr std::size_t PlainOffset = 0x1e0000;
 constexpr std::size_t PlainSlotBytes = 0x20000;
 constexpr std::uint32_t PlainRecord = 55;
-constexpr std::uint32_t Records = 63;
+constexpr std::size_t Bc7ArrayOffset = 0x2e0000;
+constexpr std::size_t Bc7ArrayLayerBytes = 0x4000;
+constexpr std::size_t Rgba8ArrayOffset = 0x2f0000;
+constexpr std::size_t Rgba8ArrayLayerBytes = 0x10000;
+constexpr std::uint32_t ArrayLayers = 3;
+constexpr std::uint32_t Records = 65;
 constexpr std::size_t SrtOffset = 0x30000;
 constexpr std::size_t TableOffset = 0x30100;
 constexpr std::size_t KeysOffset = 0x30f00;
@@ -125,6 +131,14 @@ alignas(256) constexpr std::array<std::uint32_t, 29> SampleCode{
     0xf4080100u, 0xfa000000u, 0xf4080200u, 0xfa000010u, 0xf4080700u, 0xfa000020u, 0xf4080800u, 0xfa000030u,
     0xf4080500u, 0xfa000040u, 0x8f108202u, 0xf4200444u, 0x20000000u, 0x9312b011u, 0xf42c0902u, 0x24000010u,
     0x7e120202u, 0x34101286u, 0x4a101100u, 0x34101084u, 0xe0381000u, 0x80050a08u, 0xbf8c3f70u, 0xf0900f08u,
+    0x0109040au, 0xbf8c3f70u, 0xe0781000u, 0x80070408u, 0xbf810000u,
+};
+
+// As SampleCode, but sampling a 2D array (rows: u, v, slice, lod).
+alignas(256) constexpr std::array<std::uint32_t, 29> SampleArrayCode{
+    0xf4080100u, 0xfa000000u, 0xf4080200u, 0xfa000010u, 0xf4080700u, 0xfa000020u, 0xf4080800u, 0xfa000030u,
+    0xf4080500u, 0xfa000040u, 0x8f108202u, 0xf4200444u, 0x20000000u, 0x9312b011u, 0xf42c0902u, 0x24000010u,
+    0x7e120202u, 0x34101286u, 0x4a101100u, 0x34101084u, 0xe0381000u, 0x80050a08u, 0xbf8c3f70u, 0xf0900f28u,
     0x0109040au, 0xbf8c3f70u, 0xe0781000u, 0x80070408u, 0xbf810000u,
 };
 
@@ -224,6 +238,14 @@ std::array<std::uint32_t, 8> TextureWords(const void* base, std::uint32_t format
     const auto address = static_cast<std::uint64_t>(reinterpret_cast<std::uintptr_t>(base));
     constexpr std::uint32_t type2D = 9;
     return {static_cast<std::uint32_t>(address >> 8u), static_cast<std::uint32_t>((address >> 40u) & 0xffu) | (format << 20u) | (((width - 1u) & 3u) << 30u), ((width - 1u) >> 2u) | ((height - 1u) << 14u), 0xfacu | (lastLevel << 16u) | (swizzle << 20u) | (type2D << 28u), 0u, lastLevel << 4u, 0u, 0u};
+}
+
+std::array<std::uint32_t, 8> ArrayTextureWords(const void* base, std::uint32_t format, std::uint32_t width, std::uint32_t height, std::uint32_t swizzle, std::uint32_t lastLevel, std::uint32_t layers) {
+    constexpr std::uint32_t type2DArray = 13;
+    auto words = TextureWords(base, format, width, height, swizzle, lastLevel);
+    words[3] = (words[3] & 0x0fffffffu) | (type2DArray << 28u);
+    words[4] = layers - 1u;
+    return words;
 }
 
 std::array<std::uint32_t, 4> Buffer(const void* base, std::uint32_t bytes) {
@@ -555,10 +577,19 @@ void RunTests(AgcDriver::VulkanDevice& device) {
             std::memcpy(rgba8 + StandardOffset4(x, y), linear + (y * 120u + x) * 4u, 4u);
             std::memcpy(block.At<std::uint8_t>(Rgba8RenderTargetOffset) + SurfaceOffset(27u, 4u, 120u, x, y), linear + (y * 120u + x) * 4u, 4u);
             std::memcpy(block.At<std::uint8_t>(Rgba8DepthOffset) + SurfaceOffset(24u, 4u, 120u, x, y), linear + (y * 120u + x) * 4u, 4u);
+            for (std::uint32_t layer = 0; layer < ArrayLayers; ++layer) {
+                for (std::uint32_t byte = 0; byte < 4u; ++byte) block.At<std::uint8_t>(Rgba8ArrayOffset + layer * Rgba8ArrayLayerBytes)[StandardOffset4(x, y) + byte] = static_cast<std::uint8_t>(linear[(y * 120u + x) * 4u + byte] ^ ((0x5bu * layer) & 0xffu));
+            }
             std::memcpy(block.At<std::uint8_t>(Rgba8Srgb256BOffset) + (((y >> 3u) * 15u + (x >> 3u)) << 8u) + (StandardOffset4(x & 7u, y & 7u) & 0xffu), linear + (y * 120u + x) * 4u, 4u);
         }
     }
     std::memcpy(block.At<std::uint8_t>(Rgba8CopyOffset), rgba8, 0x10000);
+    for (std::uint32_t layer = 0; layer < ArrayLayers; ++layer) {
+        const auto* chain = reinterpret_cast<const std::uint8_t*>(GuestSampledTableData::Bc7MipMemory.data());
+        const auto rotation = layer * 16u;
+        auto* target = block.At<std::uint8_t>(Bc7ArrayOffset + layer * Bc7ArrayLayerBytes);
+        for (std::size_t byte = 0; byte < Bc7ArrayLayerBytes; ++byte) target[byte] = chain[(byte + rotation) % sizeof(GuestSampledTableData::Bc7MipMemory)];
+    }
     std::memcpy(block.At<std::uint8_t>(Rgba8SrgbBilinearOffset), rgba8, 0x10000);
     std::memcpy(block.At<std::uint8_t>(Rgba8SrgbPointOffset), rgba8, 0x10000);
     std::memcpy(block.At<std::uint8_t>(Bc7Offset), GuestSampledTableData::Bc7Memory.data(), sizeof(GuestSampledTableData::Bc7Memory));
@@ -678,6 +709,8 @@ void RunTests(AgcDriver::VulkanDevice& device) {
         TextureWords(block.At<std::uint8_t>(Rgba8SrgbPointOffset), formatRgba8Srgb, 120, 68, swizzle64KbS, 0),
         TextureWords(block.At<std::uint8_t>(Rgba8Srgb256BOffset), formatRgba8Srgb, 120, 68, swizzle256BS, 0),
         plainWords(0), plainWords(1), plainWords(2), plainWords(3), plainWords(4), plainWords(5), plainWords(6), plainWords(7),
+        ArrayTextureWords(block.At<std::uint8_t>(Bc7ArrayOffset), formatBc7, 128, 64, swizzle4KbS, 4, ArrayLayers),
+        ArrayTextureWords(block.At<std::uint8_t>(Rgba8ArrayOffset), formatRgba8, 120, 68, swizzle64KbS, 0, ArrayLayers),
     };
     auto* table = block.At<std::uint32_t>(TableOffset);
     for (std::size_t record = 0; record < records.size(); ++record) std::copy(records[record].begin(), records[record].end(), table + record * (Stride / 4u) + 4u);
@@ -731,6 +764,9 @@ void RunTests(AgcDriver::VulkanDevice& device) {
         const auto& plain = plainCases[index];
         RunCase(device, block, {plain.name, static_cast<std::uint32_t>(PlainRecord + index), plain.bilinear ? Sampler(1, 1, 0) : Sampler(0, 0, 0), Rgba8Rows, plain.expected});
     }
+    namespace Arrays = GuestSampledTableArrayData;
+    RunCase(device, block, {"bc7-array/trilinear", 63, Sampler(1, 1, 2), Arrays::Bc7ArrayRows, Arrays::Bc7ArrayTrilinear, 4, SampleArrayCode});
+    RunCase(device, block, {"rgba8-array/bilinear", 64, Sampler(1, 1, 0), Arrays::Rgba8ArrayRows, Arrays::Rgba8ArrayBilinear, 4, SampleArrayCode});
     RunCase(device, block, {"bc7/point", 1, Sampler(0, 0, 0), Bc7PointRows, Bc7Point});
     RunCase(device, block, {"bc7-mips/point", 2, Sampler(0, 0, 1), Bc7MipRows, Bc7MipPoint});
     RunCase(device, block, {"rgba8/point", 3, Sampler(0, 0, 0), Rgba8Rows, Rgba8Point});
