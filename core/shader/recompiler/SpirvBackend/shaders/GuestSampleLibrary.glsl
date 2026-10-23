@@ -930,11 +930,7 @@ uint truncateMantissa11(uint value) {
 }
 
 uint scaledPolygonLength(int x, int y, int reciprocal) {
-    return uint((uint64_t(polygonRaw(x, y)) * uint64_t(reciprocal) + uint64_t(0x80000)) >> 20);
-}
-
-uint scaledPolygonRaw(int x, int y, int reciprocal) {
-    return uint((uint64_t(polygonRaw(x, y)) * uint64_t(reciprocal) + uint64_t(512)) >> 10);
+    return (polygonLength(x, y) * uint(reciprocal) + 512u) >> 10;
 }
 
 int roundHalfEven24Sticky(int64_t value, bool sticky) {
@@ -961,7 +957,7 @@ uvec2 anisoTapVector(ivec2 z1, ivec2 z2, uint length1, uint length2, ivec2 recip
     if (length1 >= 2048u && length2 >= 2048u) {
         n1 = halvedUnit(scaledUnit(z1, anisoReciprocal(length1 >> doublingsDown(length1)), 10, true), int(doublingsDown(length1)) - 1, true);
         n2 = halvedUnit(scaledUnit(z2, anisoReciprocal(length2 >> doublingsDown(length2)), 10, false), int(doublingsDown(length2)) - 1, false);
-        return uvec2(truncateMantissa11((scaledPolygonRaw(n1.x + n2.x, n1.y - n2.y, reciprocals.x) + 512u) >> 10), truncateMantissa11((scaledPolygonRaw(n1.x - n2.x, n1.y + n2.y, reciprocals.y) + 512u) >> 10));
+        return uvec2(truncateMantissa11(scaledPolygonLength(n1.x + n2.x, n1.y - n2.y, reciprocals.x)), truncateMantissa11(scaledPolygonLength(n1.x - n2.x, n1.y + n2.y, reciprocals.y)));
     }
     n1 = longUnit(z1, length1, 0u, true);
     n2 = longUnit(z2, length2, 0u, false);
