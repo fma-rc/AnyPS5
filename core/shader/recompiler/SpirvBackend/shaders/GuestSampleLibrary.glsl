@@ -752,18 +752,22 @@ uint floatFilter(uint values[8], uint weights[8], uint tapLevels[8], uint tapCou
     return roundFilterSum(high, low, negative, lowest - 44);
 }
 
-uint srgbAnisoFilter(uint packed[16], uint fractions[4], uint levelSlots, uint levelWeights[2], uint channel) {
+uint anisoFloatFilter(uint values[16], uint fractions[4], uint levelSlots, uint levelWeights[2]) {
     int largest[2] = int[](-1000, -1000);
+    bool allNegativeZero = true;
     for (uint i = 0u; i < levelSlots * 8u; ++i) {
-        uint value = SrgbToLinear[(packed[i] >> (channel * 8u)) & 0xffu];
-        uint biased = (value >> 23) & 0xffu;
+        uint biased = (values[i] >> 23) & 0xffu;
+        if (biased == 0xffu || (biased == 0u && (values[i] & 0x7fffffu) != 0u)) {
+            faulted = true;
+            return FaultCode;
+        }
+        if (values[i] != 0x80000000u) allNegativeZero = false;
         if (biased != 0u) largest[i >> 3] = max(largest[i >> 3], int(biased) - 127);
     }
-    if (largest[0] == -1000 && largest[1] == -1000) return 0u;
+    if (largest[0] == -1000 && largest[1] == -1000) return allNegativeZero ? 0x80000000u : 0u;
     int64_t levelSums[2] = int64_t[](int64_t(0), int64_t(0));
     for (uint i = 0u; i < levelSlots * 8u; ++i) {
-        uint value = SrgbToLinear[(packed[i] >> (channel * 8u)) & 0xffu];
-        uint biased = (value >> 23) & 0xffu;
+        uint biased = (values[i] >> 23) & 0xffu;
         if (biased == 0u) continue;
         uint fraction = fractions[i >> 2];
         uint wx = fraction & 0xffu;
@@ -771,17 +775,26 @@ uint srgbAnisoFilter(uint packed[16], uint fractions[4], uint levelSlots, uint l
         uint weight = ((i & 1u) != 0u ? wx : 256u - wx) * ((i & 2u) != 0u ? wy : 256u - wy) * levelWeights[i >> 3];
         if (weight == 0u) continue;
         uint shift = uint(largest[i >> 3] - (int(biased) - 127) + 3);
-        uint mantissa = (value & 0x7fffffu) | 0x800000u;
-        levelSums[i >> 3] += int64_t(shift >= 32u ? 0u : mantissa >> shift) * int64_t(weight);
+        uint mantissa = (values[i] & 0x7fffffu) | 0x800000u;
+        int64_t gridValue = int64_t(shift >= 32u ? 0u : mantissa >> shift);
+        if ((values[i] & 0x80000000u) != 0u) gridValue = -gridValue;
+        levelSums[i >> 3] += gridValue * int64_t(weight);
     }
     uint upper = largest[1] > largest[0] ? 1u : 0u;
     int lowest = largest[1 - upper] == -1000 ? largest[upper] : largest[1 - upper];
     int gap = largest[upper] - lowest;
     uint64_t high = uint64_t(0);
     uint64_t low = uint64_t(0);
+    bool negative = false;
     if (gap <= 15) {
-        low = uint64_t((levelSums[upper] << uint(gap)) + levelSums[1 - upper]);
+        int64_t sum = (levelSums[upper] << uint(gap)) + levelSums[1 - upper];
+        negative = sum < int64_t(0);
+        low = uint64_t(negative ? -sum : sum);
     } else {
+        if (levelSums[0] < int64_t(0) || levelSums[1] < int64_t(0)) {
+            faulted = true;
+            return FaultCode;
+        }
         uint64_t upperSum = uint64_t(levelSums[upper]);
         high = gap >= 64 ? upperSum << uint(gap - 64) : upperSum >> uint(64 - gap);
         low = gap >= 64 ? uint64_t(0) : upperSum << uint(gap);
@@ -790,7 +803,13 @@ uint srgbAnisoFilter(uint packed[16], uint fractions[4], uint levelSlots, uint l
         low = added;
     }
     if (high == uint64_t(0) && low == uint64_t(0)) return 0u;
-    return roundFilterSum(high, low, false, lowest - 45);
+    return roundFilterSum(high, low, negative, lowest - 45);
+}
+
+uint srgbAnisoFilter(uint packed[16], uint fractions[4], uint levelSlots, uint levelWeights[2], uint channel) {
+    uint values[16];
+    for (uint i = 0u; i < 16u; ++i) values[i] = i < levelSlots * 8u ? SrgbToLinear[(packed[i] >> (channel * 8u)) & 0xffu] : 0u;
+    return anisoFloatFilter(values, fractions, levelSlots, levelWeights);
 }
 
 uint selectChannel(uint selector, uvec4 value) {
@@ -1111,7 +1130,7 @@ uvec4 sampleGuest(uvec4 tlow, uvec4 thigh, uvec4 ssharp, uvec4 row, uvec4 deriva
     supported = supported && ((ssharp.x >> 12) & ~0x70u) == 0u && (anisoThreshold == 0u || anisoThreshold == 7u) && (ssharp.z & 0xfc000u) == 0u;
     supported = supported && (lastLevel == 0u || mipFilter == 1u || mipFilter == 2u);
     if (anisoTaps) {
-        bool anisoFormat = format == 1u || (format == 7u && lastLevel == 0u) || format == 56u || format == 130u || format == 169u || format == 170u || format == 175u || format == 181u || format == 182u;
+        bool anisoFormat = (format == 13u && lastLevel == 0u) || (format == 36u && lastLevel == 0u) || (format == 71u && lastLevel == 0u) || (format == 179u && lastLevel == 0u) || (format == 22u && lastLevel == 0u) || format == 1u || (format == 7u && lastLevel == 0u) || format == 56u || format == 130u || format == 169u || format == 170u || format == 175u || format == 181u || format == 182u;
         supported = supported && anisoFormat && row.w == 1u && samplerMinLod == 0u && samplerMaxLod >= (lastLevel << 8);
     }
     if (!supported) {
@@ -1203,6 +1222,7 @@ uvec4 sampleGuest(uvec4 tlow, uvec4 thigh, uvec4 ssharp, uvec4 row, uvec4 deriva
     uint tapCount = 0u;
     uvec4 anisoSums[4] = uvec4[](uvec4(0u), uvec4(0u), uvec4(0u), uvec4(0u));
     uint anisoPacked[16];
+    uvec4 anisoTexels[16];
     uint anisoFractions[4];
     for (uint slot = 0u; slot < levelSlots; ++slot) {
         Level level = levelLayout(width, height, lastLevel + 1u, swizzle, format, firstLevel + slot);
@@ -1236,6 +1256,7 @@ uvec4 sampleGuest(uvec4 tlow, uvec4 thigh, uvec4 ssharp, uvec4 row, uvec4 deriva
                     uvec4 texel = fetchTexel(base, (corner & 1u) != 0u ? xb : xa, (corner & 2u) != 0u ? yb : ya, format, level, swizzle);
                     anisoSums[tap] += texel * (((corner & 1u) != 0u ? wx : 256u - wx) * ((corner & 2u) != 0u ? wy : 256u - wy));
                     anisoPacked[tap * 4u + corner] = texel.x | (texel.y << 8) | (texel.z << 16) | (texel.w << 24);
+                    anisoTexels[tap * 4u + corner] = texel;
                 }
             }
             continue;
@@ -1295,6 +1316,12 @@ uvec4 sampleGuest(uvec4 tlow, uvec4 thigh, uvec4 ssharp, uvec4 row, uvec4 deriva
     uvec4 value;
     for (uint c = 0u; c < 4u; ++c) {
         if (anisoTaps) {
+            if (format == 13u || format == 36u || format == 71u || format == 179u || format == 22u) {
+                uint values[16];
+                for (uint i = 0u; i < 16u; ++i) values[i] = anisoTexels[i][c];
+                value[c] = anisoFloatFilter(values, anisoFractions, levelSlots, levelWeights);
+                continue;
+            }
             if (srgb && c < 3u) {
                 value[c] = srgbAnisoFilter(anisoPacked, anisoFractions, levelSlots, levelWeights, c);
                 continue;
