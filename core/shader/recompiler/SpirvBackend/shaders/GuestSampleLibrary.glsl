@@ -929,7 +929,21 @@ uint truncateMantissa11(uint value) {
     return top > 10 ? value & ~((1u << uint(top - 10)) - 1u) : value;
 }
 
-uvec2 anisoTapVector(ivec2 z1, ivec2 z2, uint length1, uint length2) {
+uint scaledPolygonLength(int x, int y, int reciprocal) {
+    return uint((uint64_t(polygonRaw(x, y)) * uint64_t(reciprocal) + uint64_t(0x80000)) >> 20);
+}
+
+uint scaledPolygonRaw(int x, int y, int reciprocal) {
+    return uint((uint64_t(polygonRaw(x, y)) * uint64_t(reciprocal) + uint64_t(512)) >> 10);
+}
+
+int roundHalfEven24Sticky(int64_t value, bool sticky) {
+    int64_t whole = value >> 24;
+    int64_t rest = value & int64_t(0xffffff);
+    return int(whole) + ((rest > int64_t(0x800000) || (rest == int64_t(0x800000) && (sticky || (whole & int64_t(1)) != int64_t(0)))) ? 1 : 0);
+}
+
+uvec2 anisoTapVector(ivec2 z1, ivec2 z2, uint length1, uint length2, ivec2 reciprocals) {
     uint shortest = min(length1, length2);
     if (shortest == 0u) {
         faulted = true;
@@ -942,16 +956,16 @@ uvec2 anisoTapVector(ivec2 z1, ivec2 z2, uint length1, uint length2) {
         n1 = length1 < 1024u ? scaledUnit(z1, anisoReciprocal(length1 << shift), 10, true) : longUnit(z1, length1, shift, true);
         n2 = length2 < 1024u ? scaledUnit(z2, anisoReciprocal(length2 << shift), 10, false) : longUnit(z2, length2, shift, false);
         uint factor = 2u << shift;
-        return uvec2(factor * polygonLength(n1.x + n2.x, n1.y - n2.y), factor * polygonLength(n1.x - n2.x, n1.y + n2.y));
+        return uvec2(factor * scaledPolygonLength(n1.x + n2.x, n1.y - n2.y, reciprocals.x), factor * scaledPolygonLength(n1.x - n2.x, n1.y + n2.y, reciprocals.y));
     }
     if (length1 >= 2048u && length2 >= 2048u) {
         n1 = halvedUnit(scaledUnit(z1, anisoReciprocal(length1 >> doublingsDown(length1)), 10, true), int(doublingsDown(length1)) - 1, true);
         n2 = halvedUnit(scaledUnit(z2, anisoReciprocal(length2 >> doublingsDown(length2)), 10, false), int(doublingsDown(length2)) - 1, false);
-        return uvec2(truncateMantissa11((polygonRaw(n1.x + n2.x, n1.y - n2.y) + 512u) >> 10), truncateMantissa11((polygonRaw(n1.x - n2.x, n1.y + n2.y) + 512u) >> 10));
+        return uvec2(truncateMantissa11((scaledPolygonRaw(n1.x + n2.x, n1.y - n2.y, reciprocals.x) + 512u) >> 10), truncateMantissa11((scaledPolygonRaw(n1.x - n2.x, n1.y + n2.y, reciprocals.y) + 512u) >> 10));
     }
     n1 = longUnit(z1, length1, 0u, true);
     n2 = longUnit(z2, length2, 0u, false);
-    return uvec2(2u * polygonLength(n1.x + n2.x, n1.y - n2.y), 2u * polygonLength(n1.x - n2.x, n1.y + n2.y));
+    return uvec2(2u * scaledPolygonLength(n1.x + n2.x, n1.y - n2.y, reciprocals.x), 2u * scaledPolygonLength(n1.x - n2.x, n1.y + n2.y, reciprocals.y));
 }
 
 ivec2 anisoCentre(uint bits, uint size, uint level) {
@@ -1029,7 +1043,6 @@ uvec4 sampleGuest(uvec4 tlow, uvec4 thigh, uvec4 ssharp, uvec4 row, uvec4 deriva
     if (anisoTaps) {
         bool anisoFormat = format == 169u || format == 170u || format == 175u || format == 181u || format == 182u;
         supported = supported && anisoFormat && row.w == 1u && samplerMinLod == 0u && samplerMaxLod >= (lastLevel << 8);
-        supported = supported && bitCount(width) == 1u && bitCount(height) == 1u;
     }
     if (!supported) {
         return uvec4(0u);
@@ -1064,7 +1077,10 @@ uvec4 sampleGuest(uvec4 tlow, uvec4 thigh, uvec4 ssharp, uvec4 row, uvec4 deriva
         quantizedLod = uint(clamp(max(lmax - 256, lminRaw) + samplerBias, 0, int(lastLevel) * 256));
         tapLod = max(max(lmax - 256, lmin), 0);
         if (lmax > lmin) {
-            tapVector = anisoTapVector(z1, z2, length1, length2);
+            int widthLog2;
+            int heightLog2;
+            ivec2 reciprocals = ivec2(anisoReciprocal(uint(sizeSignificand(width, widthLog2))), anisoReciprocal(uint(sizeSignificand(height, heightLog2))));
+            tapVector = anisoTapVector(z1, z2, length1, length2, reciprocals);
             tapExponent = lmax - lmin < 16 ? 1 : findMSB(uint(min(lmax - lmin, 128)));
             if (faulted) return uvec4(0u);
         }
@@ -1121,16 +1137,21 @@ uvec4 sampleGuest(uvec4 tlow, uvec4 thigh, uvec4 ssharp, uvec4 row, uvec4 deriva
     for (uint slot = 0u; slot < levelSlots; ++slot) {
         Level level = levelLayout(width, height, lastLevel + 1u, swizzle, bytesPerElementOf(format), firstLevel + slot);
         if (anisoTaps) {
-            uint levelIndex = firstLevel + slot;
-            int64_t centreX = packInt2x32(anisoCentre(row.x, width, levelIndex)) - (int64_t(128) << 24);
-            int64_t centreY = packInt2x32(anisoCentre(row.y, height, levelIndex)) - (int64_t(128) << 24);
-            uint offsetShift = uint(5 + tapExponent) - slot;
-            int64_t offsetX = int64_t(tapNumerator.x) << offsetShift;
-            int64_t offsetY = int64_t(tapNumerator.y) << offsetShift;
-            if (!tapSignPositive) offsetY = -offsetY;
+            int64_t centreX = packInt2x32(anisoCentre(row.x, level.width, 0u)) - (int64_t(128) << 24);
+            int64_t centreY = packInt2x32(anisoCentre(row.y, level.height, 0u)) - (int64_t(128) << 24);
+            uint shiftX = uint(findMSB(width)) - firstLevel;
+            uint shiftY = uint(findMSB(height)) - firstLevel;
+            int64_t spanX = (int64_t(tapNumerator.x) << uint(5 + tapExponent)) * int64_t(level.width);
+            int64_t spanY = (int64_t(tapNumerator.y) << uint(5 + tapExponent)) * int64_t(level.height);
+            int64_t offsetX = spanX >> shiftX;
+            int64_t offsetY = spanY >> shiftY;
+            bool stickyX = (spanX & ((int64_t(1) << shiftX) - int64_t(1))) != int64_t(0);
+            bool stickyY = (spanY & ((int64_t(1) << shiftY) - int64_t(1))) != int64_t(0);
+            bool upY = tapSignPositive;
             for (uint side = 0u; side < 2u; ++side) {
-                int64_t fx = int64_t(roundHalfEven24(side == 0u ? centreX + offsetX : centreX - offsetX));
-                int64_t fy = int64_t(roundHalfEven24(side == 0u ? centreY + offsetY : centreY - offsetY));
+                bool forwardY = (side == 0u) == upY;
+                int64_t fx = int64_t(roundHalfEven24Sticky(side == 0u ? centreX + offsetX : centreX - offsetX - (stickyX ? int64_t(1) : int64_t(0)), stickyX));
+                int64_t fy = int64_t(roundHalfEven24Sticky(forwardY ? centreY + offsetY : centreY - offsetY - (stickyY ? int64_t(1) : int64_t(0)), stickyY));
                 int x0 = int(fx >> 8);
                 int y0 = int(fy >> 8);
                 uint wx = uint(fx & int64_t(255));
