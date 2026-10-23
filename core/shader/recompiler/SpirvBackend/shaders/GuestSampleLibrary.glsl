@@ -1024,7 +1024,7 @@ uvec4 sampleGuest(uvec4 tlow, uvec4 thigh, uvec4 ssharp, uvec4 row, uvec4 deriva
     supported = supported && (anisoTaps || (magFilter == minFilter && magFilter <= 1u && anisoRatio <= 1u));
     supported = supported && baseLevel == 0u && maxMip == lastLevel && max(textureMinLod, samplerMinLod) <= (lastLevel << 8);
     uint anisoThreshold = (ssharp.x >> 16) & 7u;
-    supported = supported && ((ssharp.x >> 12) & ~0x70u) == 0u && (anisoThreshold == 0u || anisoThreshold == 7u) && (ssharp.z & (anisoTaps ? 0xfc000u : 0xfffffu)) == 0u;
+    supported = supported && ((ssharp.x >> 12) & ~0x70u) == 0u && (anisoThreshold == 0u || anisoThreshold == 7u) && (ssharp.z & 0xfc000u) == 0u;
     supported = supported && (lastLevel == 0u || (clampX == 2u && clampY == 2u && (mipFilter == 1u || mipFilter == 2u)));
     if (anisoTaps) {
         bool anisoFormat = format == 169u || format == 170u || format == 175u || format == 181u || format == 182u;
@@ -1036,11 +1036,12 @@ uvec4 sampleGuest(uvec4 tlow, uvec4 thigh, uvec4 ssharp, uvec4 row, uvec4 deriva
     }
     bool gather = row.w >= 3u;
     if (row.w > 6u || (gather && (lastLevel != 0u || anisoTaps))) return uvec4(0u);
-    int bias = 0;
+    int samplerBias = int(ssharp.z << 18) >> 18;
+    int bias = samplerBias;
     if (row.w == 2u) {
         float value = uintBitsToFloat(row.z);
         if (isnan(value) || abs(value) >= 16.0) return uvec4(0u);
-        bias = int(roundEven(value * 256.0));
+        bias += int(roundEven(value * 256.0));
     }
     uint quantizedLod;
     int tapLod = 0;
@@ -1055,7 +1056,6 @@ uvec4 sampleGuest(uvec4 tlow, uvec4 thigh, uvec4 ssharp, uvec4 row, uvec4 deriva
         ivec2 z2 = ivec2(products[0] - products[3], products[1] + products[2]);
         uint length1 = polygonLength(z1.x, z1.y);
         uint length2 = polygonLength(z2.x, z2.y);
-        int samplerBias = (int(ssharp.z << 18) >> 18);
         int lmax = lodOfLength(length1 + length2, scale);
         uint gap = (uint(abs(int(length1) - int(length2))) >> 1) << 1;
         int lminRaw = gap == 0u ? -0x100000 : lodOfLength(gap, scale);
@@ -1081,7 +1081,7 @@ uvec4 sampleGuest(uvec4 tlow, uvec4 thigh, uvec4 ssharp, uvec4 row, uvec4 deriva
         if (isnan(lod)) {
             return uvec4(0u);
         }
-        quantizedLod = uint(roundEven(clamp(lod, 0.0, float(lastLevel)) * 256.0));
+        quantizedLod = uint(clamp(int(roundEven(clamp(lod, -64.0, 64.0) * 256.0)) + samplerBias, 0, int(lastLevel) * 256));
     }
     quantizedLod = max(max(textureMinLod, samplerMinLod), min(quantizedLod, min(samplerMaxLod, lastLevel << 8)));
     uint firstLevel = 0u;
