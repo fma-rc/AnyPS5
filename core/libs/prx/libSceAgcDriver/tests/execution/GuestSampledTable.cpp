@@ -15,6 +15,7 @@
 #include "GuestSampledTableAnisoFormatsData.hpp"
 #include "GuestSampledTableSamplerBiasData.hpp"
 #include "GuestSampledTableWrapData.hpp"
+#include "GuestSampledTableNpotAnisoData.hpp"
 #include <algorithm>
 #include <array>
 #include <cstdint>
@@ -46,7 +47,7 @@ using ShaderRecompiler::ShaderStage;
 constexpr std::uint32_t Lanes = 64;
 constexpr std::uint32_t MaxGroups = 64;
 constexpr std::uint32_t Stride = 48;
-constexpr std::size_t BlockBytes = 0x170000;
+constexpr std::size_t BlockBytes = 0x188000;
 constexpr std::size_t Rgba8Offset = 0x00000;
 constexpr std::size_t Bc7Offset = 0x10000;
 constexpr std::size_t Bc7MipOffset = 0x20000;
@@ -94,7 +95,10 @@ constexpr std::size_t Bc7WrapPointMipOffset = 0x159000;
 constexpr std::size_t Bc7WrapLodOffset = 0x15e000;
 constexpr std::size_t Bc7WrapClampLodOffset = 0x163000;
 constexpr std::size_t Bc7WrapAnisoOffset = 0x168000;
-constexpr std::uint32_t Records = 47;
+constexpr std::size_t Bc7Npot96x40TrilinearOffset = 0x16d000;
+constexpr std::size_t Bc7Npot96x40PointOffset = 0x175000;
+constexpr std::size_t Bc7Npot100x52TrilinearOffset = 0x17d000;
+constexpr std::uint32_t Records = 50;
 constexpr std::size_t SrtOffset = 0x30000;
 constexpr std::size_t TableOffset = 0x30100;
 constexpr std::size_t KeysOffset = 0x30c00;
@@ -506,7 +510,7 @@ void RunTests(AgcDriver::VulkanDevice& device) {
     std::memcpy(block.At<std::uint8_t>(Bc7ImplicitOffset), GuestSampledTableData::Bc7MipMemory.data(), sizeof(GuestSampledTableData::Bc7MipMemory));
     std::memcpy(block.At<std::uint8_t>(Bc7BiasOffset), GuestSampledTableData::Bc7MipMemory.data(), sizeof(GuestSampledTableData::Bc7MipMemory));
     for (const auto offset : {Bc7MinLodTrilinearOffset, Bc7MinLodPointOffset, Bc7MinLodBiasOffset, Bc7AnisoTrilinearOffset, Bc7AnisoPointOffset, Bc7AnisoBilinearOffset, Bc7SrgbAnisoTrilinearOffset, Bc7SrgbAnisoPointOffset, Bc7SrgbAnisoBilinearOffset}) std::memcpy(block.At<std::uint8_t>(offset), GuestSampledTableData::Bc7MipMemory.data(), sizeof(GuestSampledTableData::Bc7MipMemory));
-    for (const auto offset : {Bc7WrapImplicitOffset, Bc7WrapPointMipOffset, Bc7WrapLodOffset, Bc7WrapClampLodOffset, Bc7WrapAnisoOffset}) std::memcpy(block.At<std::uint8_t>(offset), GuestSampledTableData::Bc7MipMemory.data(), sizeof(GuestSampledTableData::Bc7MipMemory));
+    for (const auto offset : {Bc7WrapImplicitOffset, Bc7WrapPointMipOffset, Bc7WrapLodOffset, Bc7WrapClampLodOffset, Bc7WrapAnisoOffset, Bc7Npot96x40TrilinearOffset, Bc7Npot96x40PointOffset, Bc7Npot100x52TrilinearOffset}) std::memcpy(block.At<std::uint8_t>(offset), GuestSampledTableData::Bc7MipMemory.data(), sizeof(GuestSampledTableData::Bc7MipMemory));
     for (const auto offset : {Bc7SamplerBiasPointOffset, Bc7SamplerBiasTrilinearOffset, Bc7SamplerBiasLodOffset, Bc7SamplerBiasZeroLodOffset}) std::memcpy(block.At<std::uint8_t>(offset), GuestSampledTableData::Bc7MipMemory.data(), sizeof(GuestSampledTableData::Bc7MipMemory));
     for (const auto offset : {Bc7SrgbAnisoOneLevelOffset, Bc7SrgbAnisoNpotOffset, Bc7AnisoMinLodOffset, Bc7AnisoBiasOffset}) std::memcpy(block.At<std::uint8_t>(offset), GuestSampledTableData::Bc7MipMemory.data(), sizeof(GuestSampledTableData::Bc7MipMemory));
     for (const auto offset : {Bc1AnisoTrilinearOffset, Bc1SrgbAnisoTrilinearOffset, Bc1SrgbAnisoPointOffset, Bc4AnisoTrilinearOffset, Bc5AnisoTrilinearOffset}) std::memcpy(block.At<std::uint8_t>(offset), GuestSampledTableAnisoFormatsData::AnisoNoiseMemory.data(), sizeof(GuestSampledTableAnisoFormatsData::AnisoNoiseMemory));
@@ -582,6 +586,9 @@ void RunTests(AgcDriver::VulkanDevice& device) {
         TextureWords(block.At<std::uint8_t>(Bc7WrapLodOffset), formatBc7, 128, 64, swizzle4KbS, 5),
         TextureWords(block.At<std::uint8_t>(Bc7WrapClampLodOffset), formatBc7, 128, 64, swizzle4KbS, 5),
         TextureWords(block.At<std::uint8_t>(Bc7WrapAnisoOffset), formatBc7, 128, 64, swizzle4KbS, 5),
+        TextureWords(block.At<std::uint8_t>(Bc7Npot96x40TrilinearOffset), formatBc7, 96, 40, swizzle4KbS, 3),
+        TextureWords(block.At<std::uint8_t>(Bc7Npot96x40PointOffset), formatBc7, 96, 40, swizzle4KbS, 3),
+        TextureWords(block.At<std::uint8_t>(Bc7Npot100x52TrilinearOffset), formatBc7, 100, 52, swizzle4KbS, 3),
     };
     auto* table = block.At<std::uint32_t>(TableOffset);
     for (std::size_t record = 0; record < records.size(); ++record) std::copy(records[record].begin(), records[record].end(), table + record * (Stride / 4u) + 4u);
@@ -622,6 +629,10 @@ void RunTests(AgcDriver::VulkanDevice& device) {
     RunCase(device, block, {"bc7-wrap/lod", 44, AddressedSampler(0, 0, 1, 1, 2, 0), Wrap::Bc7WrapLodRows, Wrap::Bc7WrapLodTrilinear});
     RunCase(device, block, {"bc7-wrap-x/lod", 45, AddressedSampler(0, 2, 1, 1, 2, 0), Wrap::Bc7WrapLodRows, Wrap::Bc7WrapXClampYLodTrilinear});
     RunCase(device, block, {"bc7-wrap/aniso", 46, AddressedSampler(0, 0, 3, 3, 2, 1), Wrap::Bc7WrapAnisoRows, Wrap::Bc7WrapAnisoTrilinear, 8});
+    namespace Npot = GuestSampledTableNpotAnisoData;
+    RunCase(device, block, {"bc7-npot/aniso-trilinear", 47, AnisoSampler(3, 3, 2), Npot::Bc7Npot96x40AnisoRows, Npot::Bc7Npot96x40AnisoTrilinear, 8});
+    RunCase(device, block, {"bc7-npot/aniso-point", 48, AnisoSampler(3, 3, 1), Npot::Bc7Npot96x40AnisoRows, Npot::Bc7Npot96x40AnisoPoint, 8});
+    RunCase(device, block, {"bc7-npot-uneven/aniso-trilinear", 49, AnisoSampler(3, 3, 2), Npot::Bc7Npot100x52AnisoRows, Npot::Bc7Npot100x52AnisoTrilinear, 8});
     RunCase(device, block, {"bc7/point", 1, Sampler(0, 0, 0), Bc7PointRows, Bc7Point});
     RunCase(device, block, {"bc7-mips/point", 2, Sampler(0, 0, 1), Bc7MipRows, Bc7MipPoint});
     RunCase(device, block, {"rgba8/point", 3, Sampler(0, 0, 0), Rgba8Rows, Rgba8Point});
