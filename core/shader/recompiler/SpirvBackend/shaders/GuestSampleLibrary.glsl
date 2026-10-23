@@ -97,15 +97,23 @@ int wrapIndex(int index, int extent, uint mode) {
     return clamp(index, 0, extent - 1);
 }
 
-const uint XorDepth4[16] = uint[](0u, 0u, 0x1u, 0x1000u, 0x2u, 0x2000u, 0x4u, 0x4000u, 0x08008008u, 0x04010010u, 0x02020040u, 0x01040020u, 0x8000u, 0x10u, 0x40000u, 0x40u);
-const uint XorRenderTarget4[16] = uint[](0u, 0u, 0x1u, 0x2u, 0x1000u, 0x2000u, 0x4000u, 0x4u, 0x08008008u, 0x04010010u, 0x02020040u, 0x01040020u, 0x8000u, 0x10u, 0x40000u, 0x40u);
+const uint XorEquations[128] = uint[](
+    0x1u, 0x1000u, 0x2u, 0x2000u, 0x4u, 0x4000u, 0x8u, 0x10000u, 0x8008008u, 0x4010010u, 0x2020040u, 0x1040020u, 0x40000u, 0x40u, 0x80000u, 0x80u,
+    0x0u, 0x1u, 0x1000u, 0x2u, 0x2000u, 0x4u, 0x4000u, 0x8u, 0x8008008u, 0x4010010u, 0x2020040u, 0x1040020u, 0x10000u, 0x40u, 0x40000u, 0x80u,
+    0x0u, 0x0u, 0x1u, 0x1000u, 0x2u, 0x2000u, 0x4u, 0x4000u, 0x8008008u, 0x4010010u, 0x2020040u, 0x1040020u, 0x8000u, 0x10u, 0x40000u, 0x40u,
+    0x0u, 0x0u, 0x0u, 0x1u, 0x1000u, 0x2u, 0x2000u, 0x4u, 0x8008008u, 0x4010010u, 0x2020040u, 0x1040020u, 0x4000u, 0x8u, 0x10000u, 0x40u,
+    0x1u, 0x2u, 0x4u, 0x2000u, 0x1000u, 0x4000u, 0x8u, 0x10000u, 0x8008008u, 0x4010010u, 0x2020040u, 0x1040020u, 0x40000u, 0x40u, 0x80000u, 0x80u,
+    0x0u, 0x1u, 0x2u, 0x4u, 0x1000u, 0x2000u, 0x4000u, 0x8u, 0x8008008u, 0x4010010u, 0x2020040u, 0x1040020u, 0x10000u, 0x40u, 0x40000u, 0x80u,
+    0x0u, 0x0u, 0x1u, 0x2u, 0x1000u, 0x2000u, 0x4000u, 0x4u, 0x8008008u, 0x4010010u, 0x2020040u, 0x1040020u, 0x8000u, 0x10u, 0x40000u, 0x40u,
+    0x0u, 0x0u, 0x0u, 0x1u, 0x1000u, 0x2u, 0x4u, 0x2000u, 0x8008008u, 0x4010010u, 0x2020040u, 0x1040020u, 0x4000u, 0x8u, 0x10000u, 0x40u);
 
 uint guestPipeBankXor = 0u;
 
-uint xorBlockOffset4(uint ex, uint ey, uint swizzle) {
+uint xorBlockOffset(uint ex, uint ey, uint swizzle, uint log2Bytes) {
     uint coordinate = (ex & 0xfffu) | ((ey & 0xfffu) << 12);
+    uint equation = ((swizzle == 24u ? 0u : 4u) + log2Bytes) * 16u;
     uint offset = 0u;
-    for (uint bit = 0u; bit < 16u; ++bit) offset |= (uint(bitCount(coordinate & (swizzle == 24u ? XorDepth4[bit] : XorRenderTarget4[bit]))) & 1u) << bit;
+    for (uint bit = 0u; bit < 16u; ++bit) offset |= (uint(bitCount(coordinate & XorEquations[equation + bit])) & 1u) << bit;
     return offset ^ guestPipeBankXor;
 }
 
@@ -116,14 +124,18 @@ uint elementByte(uint ex, uint ey, uint widthElements, uint bytesPerElement, uin
         return (ey * pitch + ex) * bytesPerElement;
     }
     if (bytesPerElement == 2u && swizzle == 1u) return (((ey >> 3) * ((widthElements + 15u) >> 4) + (ex >> 4)) << 8) + (((ex & 7u) << 1) | ((ey & 7u) << 4) | (((ex >> 3) & 1u) << 7));
+    if (bytesPerElement == 1u && swizzle == 1u) return (((ey >> 4) * ((widthElements + 15u) >> 4) + (ex >> 4)) << 8) + ((ex & 15u) | ((ey & 15u) << 4));
     if (bytesPerElement == 4u && swizzle == 1u) return (((ey >> 3) * ((widthElements + 7u) >> 3) + (ex >> 3)) << 8) + (standardOffset4(ex & 7u, ey & 7u) & 0xffu);
     if (bytesPerElement == 4u && swizzle == 9u) {
         uint blocksPerRow = (widthElements + 127u) >> 7;
         return (((ey >> 7) * blocksPerRow + (ex >> 7)) << 16) + standardOffset4(ex & 127u, ey & 127u);
     }
-    if (bytesPerElement == 4u && (swizzle == 24u || swizzle == 27u)) {
-        uint blocksPerRow = (widthElements + 127u) >> 7;
-        return (((ey >> 7) * blocksPerRow + (ex >> 7)) << 16) + xorBlockOffset4(ex, ey, swizzle);
+    if ((swizzle == 24u || swizzle == 27u) && bytesPerElement <= 8u) {
+        uint log2Bytes = uint(findLSB(bytesPerElement));
+        uint widthLog2 = (17u - log2Bytes) >> 1;
+        uint heightLog2 = (16u - log2Bytes) >> 1;
+        uint blocksPerRow = (widthElements + (1u << widthLog2) - 1u) >> widthLog2;
+        return (((ey >> heightLog2) * blocksPerRow + (ex >> widthLog2)) << 16) + xorBlockOffset(ex, ey, swizzle, log2Bytes);
     }
     if (bytesPerElement == 8u) {
         if (swizzle == 1u) return (((ey >> 2) * ((widthElements + 7u) >> 3) + (ex >> 3)) << 8) + standardOffset8(ex & 7u, ey & 3u);
@@ -277,14 +289,41 @@ uint alignUp(uint value, uint alignment) {
     return (value + alignment - 1u) / alignment * alignment;
 }
 
-Level levelLayout(uint width, uint height, uint levelCount, uint swizzle, uint bytesPerElement, uint level) {
+bool blockCompressed(uint format) {
+    return format >= 169u && format <= 182u;
+}
+
+uint bytesPerElementOf(uint format) {
+    if (format == 1u) return 1u;
+    if (format == 56u || format == 130u || format == 22u || format == 36u) return 4u;
+    if (format == 7u || format == 13u) return 2u;
+    if (format == 71u || format == 169u || format == 170u || format == 175u) return 8u;
+    return 16u;
+}
+
+uint smallFloatToFloat32(uint bits, uint mantissaBits) {
+    uint exponent = (bits >> mantissaBits) & 31u;
+    uint mantissa = bits & ((1u << mantissaBits) - 1u);
+    if (exponent == 31u) return 0x7f800000u | (mantissa << (23u - mantissaBits));
+    if (exponent != 0u) return ((exponent + 112u) << 23) | (mantissa << (23u - mantissaBits));
+    if (mantissa == 0u) return 0u;
+    int leading = findMSB(mantissa);
+    return (uint(leading - 14 - int(mantissaBits) + 127) << 23) | ((mantissa << uint(23 - leading)) & 0x7fffffu);
+}
+
+uint halfToFloat32(uint bits) {
+    return ((bits & 0x8000u) << 16) | smallFloatToFloat32(bits & 0x7fffu, 10u);
+}
+
+Level levelLayout(uint width, uint height, uint levelCount, uint swizzle, uint format, uint level) {
+    uint bytesPerElement = bytesPerElementOf(format);
     Level result;
     result.width = max(width >> level, 1u);
     result.height = max(height >> level, 1u);
     result.tailX = 0u;
     result.tailY = 0u;
     result.offset = 0u;
-    if (bytesPerElement <= 4u) {
+    if (!blockCompressed(format)) {
         result.widthElements = result.width;
         if (levelCount == 1u) return result;
         if (swizzle == 0u) {
@@ -347,12 +386,6 @@ Level levelLayout(uint width, uint height, uint levelCount, uint swizzle, uint b
     return result;
 }
 
-uint bytesPerElementOf(uint format) {
-    if (format == 56u || format == 130u || format == 22u) return 4u;
-    if (format == 7u) return 2u;
-    if (format == 169u || format == 170u || format == 175u) return 8u;
-    return 16u;
-}
 
 uint bc4Value64(uvec2 block, uint pixel) {
     uint r0 = block.x & 0xffu;
@@ -486,6 +519,19 @@ uvec4 fetchTexel(uint64_t base, int x, int y, uint format, Level level, uint swi
         uint word = guestLoad32(base + uint64_t(elementOffset & ~3u));
         if (format == 7u) word = (elementOffset & 2u) != 0u ? word >> 16 : word & 0xffffu;
         return uvec4(word);
+    }
+    if (format == 1u || format == 13u || format == 36u || format == 71u) {
+        uint bytesPerElement = bytesPerElementOf(format);
+        uint elementOffset = level.offset + elementByte(uint(x), uint(y), level.widthElements, bytesPerElement, swizzle);
+        uint word = guestLoad32(base + uint64_t(elementOffset & ~3u));
+        if (format == 1u) return uvec4((word >> ((elementOffset & 3u) * 8u)) & 0xffu);
+        if (format == 13u) return uvec4(halfToFloat32((elementOffset & 2u) != 0u ? word >> 16 : word & 0xffffu));
+        if (format == 36u) {
+            uint red = smallFloatToFloat32(word & 0x7ffu, 6u);
+            return uvec4(red, smallFloatToFloat32((word >> 11) & 0x7ffu, 6u), smallFloatToFloat32(word >> 22, 5u), red);
+        }
+        uint high = guestLoad32(base + uint64_t(elementOffset + 4u));
+        return uvec4(halfToFloat32(word & 0xffffu), halfToFloat32(word >> 16), halfToFloat32(high & 0xffffu), halfToFloat32(high >> 16));
     }
     if (format == 56u || format == 130u) {
         uint word = guestLoad32(base + uint64_t(elementByte(uint(x), uint(y), level.width, 4u, swizzle)));
@@ -1002,11 +1048,12 @@ uint filterChannel(uint format, bool srgb, bool point, uint c, uint texels[8], u
     if (format == 22u && point) return float32Point(texels[0]);
     if (format == 7u) return unorm16Filter(texels, tapWeights, tapCount);
     if (format == 22u) return float32Filter(texels, tapWeights, tapCount, singleTexel);
-    if (format == 179u || (srgb && c < 3u)) {
+    bool floatTexels = format == 13u || format == 36u || format == 71u || format == 179u;
+    if (floatTexels || (srgb && c < 3u)) {
         uint values[8];
         uint weights[8];
         for (uint i = 0u; i < 8u; ++i) {
-            values[i] = i < tapCount ? (format == 179u ? texels[i] : SrgbToLinear[texels[i]]) : 0u;
+            values[i] = i < tapCount ? (floatTexels ? texels[i] : SrgbToLinear[texels[i]]) : 0u;
             weights[i] = i < tapCount ? tapWeights[i] * levelWeights[tapLevels[i]] : 0u;
         }
         return floatFilter(values, weights, tapLevels, tapCount);
@@ -1046,7 +1093,7 @@ uvec4 sampleGuest(uvec4 tlow, uvec4 thigh, uvec4 ssharp, uvec4 row, uvec4 deriva
     uint magFilter = (ssharp.z >> 20) & 3u;
     uint minFilter = (ssharp.z >> 22) & 3u;
     uint mipFilter = (ssharp.z >> 26) & 3u;
-    bool knownFormat = format == 7u || format == 22u || format == 56u || format == 130u || format == 169u || format == 170u || format == 175u || format == 177u || format == 179u || format == 181u || format == 182u;
+    bool knownFormat = format == 1u || format == 7u || format == 13u || format == 22u || format == 36u || format == 56u || format == 71u || format == 130u || format == 169u || format == 170u || format == 175u || format == 177u || format == 179u || format == 181u || format == 182u;
     bool srgb = format == 130u || format == 170u || format == 182u;
     bool anisoTaps = magFilter == 3u && minFilter == 3u && anisoRatio == 1u;
     bool supported = knownFormat && type == 9u && (clampX == 0u || clampX == 2u) && (clampY == 0u || clampY == 2u);
@@ -1150,7 +1197,7 @@ uvec4 sampleGuest(uvec4 tlow, uvec4 thigh, uvec4 ssharp, uvec4 row, uvec4 deriva
     uint anisoPacked[16];
     uint anisoFractions[4];
     for (uint slot = 0u; slot < levelSlots; ++slot) {
-        Level level = levelLayout(width, height, lastLevel + 1u, swizzle, bytesPerElementOf(format), firstLevel + slot);
+        Level level = levelLayout(width, height, lastLevel + 1u, swizzle, format, firstLevel + slot);
         if (anisoTaps) {
             int64_t centreX = packInt2x32(anisoCentre(row.x, level.width, 0u)) - (int64_t(128) << 24);
             int64_t centreY = packInt2x32(anisoCentre(row.y, level.height, 0u)) - (int64_t(128) << 24);
@@ -1285,10 +1332,10 @@ uvec4 loadGuest(uvec4 tlow, uvec4 thigh, uvec4 coord, uvec4 memory, out uint fau
     guestOrigin = base;
     uint type = (t3 >> 28) & 0xfu;
     uint maxMip = (thigh.y >> 4) & 0xfu;
-    bool knownFormat = format == 7u || format == 22u || format == 56u || format == 130u || format == 169u || format == 170u || format == 175u || format == 177u || format == 179u || format == 181u || format == 182u;
+    bool knownFormat = format == 1u || format == 7u || format == 13u || format == 22u || format == 36u || format == 56u || format == 71u || format == 130u || format == 169u || format == 170u || format == 175u || format == 177u || format == 179u || format == 181u || format == 182u;
     if (!knownFormat || type != 9u || baseLevel != 0u || maxMip != lastLevel) return uvec4(0u);
     uint levelIndex = coord.z;
-    Level level = levelLayout(width, height, lastLevel + 1u, swizzle, bytesPerElementOf(format), min(levelIndex, lastLevel));
+    Level level = levelLayout(width, height, lastLevel + 1u, swizzle, format, min(levelIndex, lastLevel));
     if (faulted) return uvec4(0u);
     fault = 0u;
     if (levelIndex > lastLevel || levelIndex < (((t1 >> 8) & 0xfffu) >> 8) || coord.x >= level.width || coord.y >= level.height) return uvec4(0u);
