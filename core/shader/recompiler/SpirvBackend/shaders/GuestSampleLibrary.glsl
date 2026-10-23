@@ -929,12 +929,17 @@ uint truncateMantissa11(uint value) {
     return top > 10 ? value & ~((1u << uint(top - 10)) - 1u) : value;
 }
 
+int reciprocalScaled(int value, int reciprocal) {
+    int magnitude = (abs(value) * reciprocal + 512) >> 10;
+    return value < 0 ? -magnitude : magnitude;
+}
+
 uint scaledPolygonLength(int x, int y, int reciprocal) {
-    return uint((uint64_t(polygonRaw(x, y)) * uint64_t(reciprocal) + uint64_t(0x80000)) >> 20);
+    return polygonLength(reciprocalScaled(x, reciprocal), reciprocalScaled(y, reciprocal));
 }
 
 uint scaledPolygonRaw(int x, int y, int reciprocal) {
-    return uint((uint64_t(polygonRaw(x, y)) * uint64_t(reciprocal) + uint64_t(512)) >> 10);
+    return polygonRaw(reciprocalScaled(x, reciprocal), reciprocalScaled(y, reciprocal));
 }
 
 int roundHalfEven24Sticky(int64_t value, bool sticky) {
@@ -1070,7 +1075,7 @@ uvec4 sampleGuest(uvec4 tlow, uvec4 thigh, uvec4 ssharp, uvec4 row, uvec4 deriva
         uint length1 = polygonLength(z1.x, z1.y);
         uint length2 = polygonLength(z2.x, z2.y);
         int lmax = lodOfLength(length1 + length2, scale);
-        uint gap = (uint(abs(int(length1) - int(length2))) >> 1) << 1;
+        uint gap = uint(abs((int(length1) - int(length2)) >> 1)) << 1;
         int lminRaw = gap == 0u ? -0x100000 : lodOfLength(gap, scale);
         int lmin = max(lminRaw, 0);
         if (faulted) return uvec4(0u);
