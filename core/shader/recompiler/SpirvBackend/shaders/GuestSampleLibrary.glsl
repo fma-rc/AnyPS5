@@ -817,19 +817,63 @@ uint anisoFloatFilter(uint values[16], uint fractions[4], uint levelSlots, uint 
     return roundFilterSum(high, low, negative, lowest - 45);
 }
 
-uint anisoFloat32Filter(uint values[16], uint fractions[4]) {
-    uint levelValues[8];
-    uint weights[8];
-    for (uint i = 0u; i < 8u; ++i) {
-        uint fraction = fractions[i >> 2];
-        uint wx = fraction & 0xffu;
-        uint wy = fraction >> 8;
-        levelValues[i] = values[i];
-        weights[i] = ((i & 1u) != 0u ? wx : 256u - wx) * ((i & 2u) != 0u ? wy : 256u - wy);
+uint anisoFloat32Filter(uint values[16], uint fractions[4], uint levelSlots, uint levelWeights[2]) {
+    uint unitLevelWeights[2] = uint[](1u, 1u);
+    int largest = -1000;
+    for (uint i = 0u; i < levelSlots * 8u; ++i) {
+        if (anisoCornerWeight(fractions, levelWeights, i) == 0u) continue;
+        uint biased = (values[i] >> 23) & 0xffu;
+        if (biased == 0xffu || (biased == 0u && (values[i] & 0x7fffffu) != 0u)) {
+            faulted = true;
+            return FaultCode;
+        }
+        if (biased != 0u) largest = max(largest, int(biased) - 127);
     }
-    uint filtered = float32Filter(levelValues, weights, 8u, false);
-    if (faulted || filtered == 0u || filtered == 0x80000000u) return filtered;
-    return filtered - (1u << 23);
+    if (largest == -1000) return 0u;
+    int64_t levelSums[2] = int64_t[](int64_t(0), int64_t(0));
+    for (uint i = 0u; i < levelSlots * 8u; ++i) {
+        uint biased = (values[i] >> 23) & 0xffu;
+        if (anisoCornerWeight(fractions, levelWeights, i) == 0u || biased == 0u) continue;
+        uint shift = uint(largest - (int(biased) - 127));
+        if (shift >= 24u + Float32GridBits) continue;
+        int64_t gridValue = int64_t((uint64_t((values[i] & 0x7fffffu) | 0x800000u) << Float32GridBits) >> shift);
+        if ((values[i] & 0x80000000u) != 0u) gridValue = -gridValue;
+        levelSums[i >> 3] += gridValue * int64_t(anisoCornerWeight(fractions, unitLevelWeights, i));
+    }
+    uint64_t high = uint64_t(0);
+    uint64_t low = uint64_t(0);
+    for (uint slot = 0u; slot < levelSlots; ++slot) {
+        uint64_t magnitude = uint64_t(levelSums[slot] < int64_t(0) ? -levelSums[slot] : levelSums[slot]);
+        uint64_t upper = (magnitude >> 32) * uint64_t(levelWeights[slot]);
+        uint64_t lower = (magnitude & uint64_t(0xffffffffu)) * uint64_t(levelWeights[slot]);
+        uint64_t addLow = (upper << 32) + lower;
+        uint64_t addHigh = (upper >> 32) + (addLow < lower ? uint64_t(1) : uint64_t(0));
+        if (levelSums[slot] < int64_t(0)) {
+            addLow = ~addLow + uint64_t(1);
+            addHigh = ~addHigh + (addLow == uint64_t(0) ? uint64_t(1) : uint64_t(0));
+        }
+        uint64_t sumLow = low + addLow;
+        high += addHigh + (sumLow < low ? uint64_t(1) : uint64_t(0));
+        low = sumLow;
+    }
+    bool negative = int64_t(high) < int64_t(0);
+    if (negative) {
+        low = ~low + uint64_t(1);
+        high = ~high + (low == uint64_t(0) ? uint64_t(1) : uint64_t(0));
+    }
+    if (high == uint64_t(0) && low == uint64_t(0)) return 0u;
+    int keep = (high != uint64_t(0) ? 64 + msb64(high) : msb64(low)) - 34;
+    if (negative && wideAnyBelow(high, low, keep)) {
+        if (keep >= 64) {
+            low = uint64_t(0);
+            high = (high & ~((uint64_t(1) << uint(keep - 64)) - uint64_t(1))) + (uint64_t(1) << uint(keep - 64));
+        } else {
+            uint64_t cleared = low & ~((uint64_t(1) << uint(keep)) - uint64_t(1));
+            low = cleared + (uint64_t(1) << uint(keep));
+            if (low < cleared) high += uint64_t(1);
+        }
+    }
+    return roundFilterSum(high, low, negative, largest - 48 - int(Float32GridBits));
 }
 
 uint srgbAnisoFilter(uint packed[16], uint fractions[4], uint levelSlots, uint levelWeights[2], uint channel) {
@@ -1156,7 +1200,7 @@ uvec4 sampleGuest(uvec4 tlow, uvec4 thigh, uvec4 ssharp, uvec4 row, uvec4 deriva
     supported = supported && ((ssharp.x >> 12) & ~0x70u) == 0u && (anisoThreshold == 0u || anisoThreshold == 7u) && (ssharp.z & 0xfc000u) == 0u;
     supported = supported && (lastLevel == 0u || mipFilter == 1u || mipFilter == 2u);
     if (anisoTaps) {
-        bool anisoFormat = (format == 13u && lastLevel == 0u) || (format == 36u && lastLevel == 0u) || (format == 71u && lastLevel == 0u) || format == 179u || (format == 22u && lastLevel == 0u) || format == 1u || (format == 7u && lastLevel == 0u) || format == 56u || format == 130u || format == 169u || format == 170u || format == 175u || format == 181u || format == 182u;
+        bool anisoFormat = (format == 13u && lastLevel == 0u) || (format == 36u && lastLevel == 0u) || (format == 71u && lastLevel == 0u) || format == 179u || format == 22u || format == 1u || format == 7u || format == 56u || format == 130u || format == 169u || format == 170u || format == 175u || format == 181u || format == 182u;
         supported = supported && anisoFormat && row.w == 1u && samplerMinLod == 0u && samplerMaxLod >= (lastLevel << 8);
     }
     if (!supported) {
@@ -1227,7 +1271,7 @@ uvec4 sampleGuest(uvec4 tlow, uvec4 thigh, uvec4 ssharp, uvec4 row, uvec4 deriva
             fraction = 0u;
         }
     }
-    if ((format == 22u || format == 7u) && fraction != 0u) {
+    if ((format == 22u || format == 7u) && !anisoTaps && fraction != 0u) {
         return uvec4(0u);
     }
     uvec2 tapNumerator = uvec2(0u);
@@ -1352,7 +1396,7 @@ uvec4 sampleGuest(uvec4 tlow, uvec4 thigh, uvec4 ssharp, uvec4 row, uvec4 deriva
                         values[i] = fetchTexel(base, int((i & 1u) != 0u ? corners.y : corners.x), int((i & 2u) != 0u ? corners.w : corners.z), format, level, swizzle)[c];
                     }
                 }
-                value[c] = format == 22u ? anisoFloat32Filter(values, anisoFractions) : anisoFloatFilter(values, anisoFractions, levelSlots, levelWeights);
+                value[c] = format == 22u ? anisoFloat32Filter(values, anisoFractions, levelSlots, levelWeights) : anisoFloatFilter(values, anisoFractions, levelSlots, levelWeights);
                 continue;
             }
             if (srgb && c < 3u) {
@@ -1361,7 +1405,10 @@ uvec4 sampleGuest(uvec4 tlow, uvec4 thigh, uvec4 ssharp, uvec4 row, uvec4 deriva
             }
             uint scale = srgb ? 257u : 1u;
             uint64_t blended = uint64_t(0);
-            for (uint tap = 0u; tap < 4u; ++tap) blended += RoundU64(uint64_t(anisoSums[tap][c]) * uint64_t(scale) * uint64_t(levelWeights[tap >> 1]), 5);
+            for (uint tap = 0u; tap < 4u; ++tap) {
+                uint64_t weighted = uint64_t(anisoSums[tap][c]) * uint64_t(scale) * uint64_t(levelWeights[tap >> 1]);
+                blended += format == 7u ? (weighted + uint64_t(16)) >> 5 : RoundU64(weighted, 5);
+            }
             uint64_t filtered = tapVector == uvec2(0u) ? RoundU64(blended, 7) : (blended + uint64_t(32)) >> 7;
             if (srgb && levelSlots == 2u) filtered = RoundU64(blended, 7);
             if (format == 175u) { uint64_t raw = uint64_t(0); for (uint tap = 0u; tap < 4u; ++tap) raw += uint64_t(anisoSums[tap][c]) * uint64_t(levelWeights[tap >> 1]); filtered = (raw + uint64_t(512)) >> 18; }
