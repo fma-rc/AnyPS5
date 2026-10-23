@@ -929,17 +929,12 @@ uint truncateMantissa11(uint value) {
     return top > 10 ? value & ~((1u << uint(top - 10)) - 1u) : value;
 }
 
-int reciprocalScaled(int value, int reciprocal) {
-    int magnitude = (abs(value) * reciprocal + 512) >> 10;
-    return value < 0 ? -magnitude : magnitude;
-}
-
 uint scaledPolygonLength(int x, int y, int reciprocal) {
-    return polygonLength(reciprocalScaled(x, reciprocal), reciprocalScaled(y, reciprocal));
+    return uint((uint64_t(polygonRaw(x, y)) * uint64_t(reciprocal) + uint64_t(0x80000)) >> 20);
 }
 
 uint scaledPolygonRaw(int x, int y, int reciprocal) {
-    return polygonRaw(reciprocalScaled(x, reciprocal), reciprocalScaled(y, reciprocal));
+    return uint((uint64_t(polygonRaw(x, y)) * uint64_t(reciprocal) + uint64_t(512)) >> 10);
 }
 
 int roundHalfEven24Sticky(int64_t value, bool sticky) {
