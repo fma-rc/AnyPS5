@@ -806,6 +806,21 @@ uint anisoFloatFilter(uint values[16], uint fractions[4], uint levelSlots, uint 
     return roundFilterSum(high, low, negative, lowest - 45);
 }
 
+uint anisoFloat32Filter(uint values[16], uint fractions[4]) {
+    uint levelValues[8];
+    uint weights[8];
+    for (uint i = 0u; i < 8u; ++i) {
+        uint fraction = fractions[i >> 2];
+        uint wx = fraction & 0xffu;
+        uint wy = fraction >> 8;
+        levelValues[i] = values[i];
+        weights[i] = ((i & 1u) != 0u ? wx : 256u - wx) * ((i & 2u) != 0u ? wy : 256u - wy);
+    }
+    uint filtered = float32Filter(levelValues, weights, 8u, false);
+    if (faulted || filtered == 0u || filtered == 0x80000000u) return filtered;
+    return filtered - (1u << 23);
+}
+
 uint srgbAnisoFilter(uint packed[16], uint fractions[4], uint levelSlots, uint levelWeights[2], uint channel) {
     uint values[16];
     for (uint i = 0u; i < 16u; ++i) values[i] = i < levelSlots * 8u ? SrgbToLinear[(packed[i] >> (channel * 8u)) & 0xffu] : 0u;
@@ -1222,7 +1237,7 @@ uvec4 sampleGuest(uvec4 tlow, uvec4 thigh, uvec4 ssharp, uvec4 row, uvec4 deriva
     uint tapCount = 0u;
     uvec4 anisoSums[4] = uvec4[](uvec4(0u), uvec4(0u), uvec4(0u), uvec4(0u));
     uint anisoPacked[16];
-    uvec4 anisoTexels[16];
+    uvec4 anisoCorners[4];
     uint anisoFractions[4];
     for (uint slot = 0u; slot < levelSlots; ++slot) {
         Level level = levelLayout(width, height, lastLevel + 1u, swizzle, format, firstLevel + slot);
@@ -1252,11 +1267,11 @@ uvec4 sampleGuest(uvec4 tlow, uvec4 thigh, uvec4 ssharp, uvec4 row, uvec4 deriva
                 int yb = wrapIndex(y0 + 1, int(level.height), clampY);
                 uint tap = slot * 2u + side;
                 anisoFractions[tap] = wx | (wy << 8);
+                anisoCorners[tap] = uvec4(uint(xa), uint(xb), uint(ya), uint(yb));
                 for (uint corner = 0u; corner < 4u; ++corner) {
                     uvec4 texel = fetchTexel(base, (corner & 1u) != 0u ? xb : xa, (corner & 2u) != 0u ? yb : ya, format, level, swizzle);
                     anisoSums[tap] += texel * (((corner & 1u) != 0u ? wx : 256u - wx) * ((corner & 2u) != 0u ? wy : 256u - wy));
                     anisoPacked[tap * 4u + corner] = texel.x | (texel.y << 8) | (texel.z << 16) | (texel.w << 24);
-                    anisoTexels[tap * 4u + corner] = texel;
                 }
             }
             continue;
@@ -1318,8 +1333,15 @@ uvec4 sampleGuest(uvec4 tlow, uvec4 thigh, uvec4 ssharp, uvec4 row, uvec4 deriva
         if (anisoTaps) {
             if (format == 13u || format == 36u || format == 71u || format == 179u || format == 22u) {
                 uint values[16];
-                for (uint i = 0u; i < 16u; ++i) values[i] = anisoTexels[i][c];
-                value[c] = anisoFloatFilter(values, anisoFractions, levelSlots, levelWeights);
+                for (uint i = 0u; i < 16u; ++i) values[i] = 0u;
+                for (uint slot = 0u; slot < levelSlots; ++slot) {
+                    Level level = levelLayout(width, height, lastLevel + 1u, swizzle, format, firstLevel + slot);
+                    for (uint i = slot * 8u; i < slot * 8u + 8u; ++i) {
+                        uvec4 corners = anisoCorners[i >> 2];
+                        values[i] = fetchTexel(base, int((i & 1u) != 0u ? corners.y : corners.x), int((i & 2u) != 0u ? corners.w : corners.z), format, level, swizzle)[c];
+                    }
+                }
+                value[c] = format == 22u ? anisoFloat32Filter(values, anisoFractions) : anisoFloatFilter(values, anisoFractions, levelSlots, levelWeights);
                 continue;
             }
             if (srgb && c < 3u) {
