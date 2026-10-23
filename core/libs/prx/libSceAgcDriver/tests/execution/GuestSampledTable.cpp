@@ -53,7 +53,7 @@ using ShaderRecompiler::ShaderStage;
 constexpr std::uint32_t Lanes = 64;
 constexpr std::uint32_t MaxGroups = 64;
 constexpr std::uint32_t Stride = 48;
-constexpr std::size_t BlockBytes = 0x390000;
+constexpr std::size_t BlockBytes = 0x3d0000;
 constexpr std::size_t Rgba8Offset = 0x00000;
 constexpr std::size_t Bc7Offset = 0x10000;
 constexpr std::size_t Bc7MipOffset = 0x20000;
@@ -122,10 +122,13 @@ constexpr std::size_t Rgba8AnisoOffset = 0x320000;
 constexpr std::size_t Rgba8AnisoSlotBytes = 0x10000;
 constexpr std::uint32_t Rgba8AnisoRecord = 65;
 constexpr std::uint32_t Rgba8AnisoCases = 7;
-constexpr std::uint32_t Records = 72;
+constexpr std::size_t SingleXorOffset = 0x390000;
+constexpr std::size_t SingleXorSlotBytes = 0x10000;
+constexpr std::uint32_t SingleXorRecord = 72;
+constexpr std::uint32_t Records = 76;
 constexpr std::size_t SrtOffset = 0x30000;
 constexpr std::size_t TableOffset = 0x30100;
-constexpr std::size_t KeysOffset = 0x30f00;
+constexpr std::size_t KeysOffset = 0x31000;
 constexpr std::size_t RowsOffset = 0x40000;
 constexpr std::size_t OutputOffset = 0x50000;
 constexpr std::size_t RowsBytes = OutputOffset - RowsOffset;
@@ -620,6 +623,16 @@ void RunTests(AgcDriver::VulkanDevice& device) {
             }
         }
     }
+    for (std::uint32_t y = 0; y < 64u; ++y) {
+        for (std::uint32_t x = 0; x < 64u; ++x) {
+            const auto* r16 = reinterpret_cast<const std::uint8_t*>(GuestSampledTableDerivativeData::R16Memory.data());
+            const auto* r32f = reinterpret_cast<const std::uint8_t*>(GuestSampledTableDerivativeData::R32fMemory.data());
+            std::memcpy(block.At<std::uint8_t>(SingleXorOffset) + SurfaceOffset(27u, 2u, 64u, x, y), r16 + SurfaceOffset(1u, 2u, 64u, x, y), 2u);
+            std::memcpy(block.At<std::uint8_t>(SingleXorOffset + SingleXorSlotBytes) + SurfaceOffset(24u, 2u, 64u, x, y), r16 + SurfaceOffset(1u, 2u, 64u, x, y), 2u);
+            std::memcpy(block.At<std::uint8_t>(SingleXorOffset + 2u * SingleXorSlotBytes) + SurfaceOffset(27u, 4u, 64u, x, y), r32f + SurfaceOffset(1u, 4u, 64u, x, y), 4u);
+            std::memcpy(block.At<std::uint8_t>(SingleXorOffset + 3u * SingleXorSlotBytes) + SurfaceOffset(24u, 4u, 64u, x, y), r32f + SurfaceOffset(1u, 4u, 64u, x, y), 4u);
+        }
+    }
     std::memcpy(block.At<std::uint8_t>(R16Offset), GuestSampledTableDerivativeData::R16Memory.data(), sizeof(GuestSampledTableDerivativeData::R16Memory));
     std::memcpy(block.At<std::uint8_t>(R32fOffset), GuestSampledTableDerivativeData::R32fMemory.data(), sizeof(GuestSampledTableDerivativeData::R32fMemory));
     std::memcpy(block.At<std::uint8_t>(R32fLoadOffset), GuestSampledTableDerivativeData::R32fMemory.data(), sizeof(GuestSampledTableDerivativeData::R32fMemory));
@@ -735,6 +748,10 @@ void RunTests(AgcDriver::VulkanDevice& device) {
         TextureWords(block.At<std::uint8_t>(Rgba8AnisoOffset + 4u * Rgba8AnisoSlotBytes + Rgba8PipeBankXor), formatRgba8Srgb, 128, 64, 27u, 0),
         TextureWords(block.At<std::uint8_t>(Rgba8AnisoOffset + 5u * Rgba8AnisoSlotBytes), formatRgba8, 128, 64, swizzle64KbS, 0),
         TextureWords(block.At<std::uint8_t>(Rgba8AnisoOffset + 6u * Rgba8AnisoSlotBytes), formatRgba8, 120, 68, swizzle256BS, 0),
+        TextureWords(block.At<std::uint8_t>(SingleXorOffset + Rgba8PipeBankXor), formatR16, 64, 64, 27u, 0),
+        TextureWords(block.At<std::uint8_t>(SingleXorOffset + SingleXorSlotBytes + Rgba8PipeBankXor), formatR16, 64, 64, 24u, 0),
+        TextureWords(block.At<std::uint8_t>(SingleXorOffset + 2u * SingleXorSlotBytes + Rgba8PipeBankXor), formatR32f, 64, 64, 27u, 0),
+        TextureWords(block.At<std::uint8_t>(SingleXorOffset + 3u * SingleXorSlotBytes + Rgba8PipeBankXor), formatR32f, 64, 64, 24u, 0),
     };
     auto* table = block.At<std::uint32_t>(TableOffset);
     for (std::size_t record = 0; record < records.size(); ++record) std::copy(records[record].begin(), records[record].end(), table + record * (Stride / 4u) + 4u);
@@ -801,6 +818,10 @@ void RunTests(AgcDriver::VulkanDevice& device) {
         RunCase(device, block, {"rgba8-s64-aniso/trilinear", Rgba8AnisoRecord + 5u, AnisoSampler(3, 3, 2), Formats::AnisoFormatsRows, Aniso8::Rgba8AnisoS64, 8});
         RunCase(device, block, {"rgba8-npot-aniso/trilinear", Rgba8AnisoRecord + 6u, AnisoSampler(3, 3, 2), Formats::AnisoFormatsRows, Aniso8::Rgba8AnisoNpot, 8});
     }
+    RunCase(device, block, {"r16-rx/bilinear", SingleXorRecord, Sampler(1, 1, 0), GuestSampledTableDerivativeData::SingleChannelRows, GuestSampledTableDerivativeData::R16Bilinear});
+    RunCase(device, block, {"r16-zx/bilinear", SingleXorRecord + 1u, Sampler(1, 1, 0), GuestSampledTableDerivativeData::SingleChannelRows, GuestSampledTableDerivativeData::R16Bilinear});
+    RunCase(device, block, {"r32f-rx/bilinear", SingleXorRecord + 2u, Sampler(1, 1, 0), GuestSampledTableDerivativeData::SingleChannelRows, GuestSampledTableDerivativeData::R32fBilinear});
+    RunCase(device, block, {"r32f-zx/bilinear", SingleXorRecord + 3u, Sampler(1, 1, 0), GuestSampledTableDerivativeData::SingleChannelRows, GuestSampledTableDerivativeData::R32fBilinear});
     RunCase(device, block, {"bc7/point", 1, Sampler(0, 0, 0), Bc7PointRows, Bc7Point});
     RunCase(device, block, {"bc7-mips/point", 2, Sampler(0, 0, 1), Bc7MipRows, Bc7MipPoint});
     RunCase(device, block, {"rgba8/point", 3, Sampler(0, 0, 0), Rgba8Rows, Rgba8Point});
