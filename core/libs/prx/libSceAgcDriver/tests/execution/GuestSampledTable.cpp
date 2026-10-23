@@ -22,6 +22,7 @@
 #include "GuestSampledTableArrayData.hpp"
 #include "GuestSampledTableAnisoRgba8Data.hpp"
 #include "GuestSampledTableAnisoSingleData.hpp"
+#include "GuestSampledTableAnisoFloatData.hpp"
 #include <algorithm>
 #include <array>
 #include <bit>
@@ -54,7 +55,7 @@ using ShaderRecompiler::ShaderStage;
 constexpr std::uint32_t Lanes = 64;
 constexpr std::uint32_t MaxGroups = 64;
 constexpr std::uint32_t Stride = 48;
-constexpr std::size_t BlockBytes = 0x420000;
+constexpr std::size_t BlockBytes = 0x490000;
 constexpr std::size_t Rgba8Offset = 0x00000;
 constexpr std::size_t Bc7Offset = 0x10000;
 constexpr std::size_t Bc7MipOffset = 0x20000;
@@ -130,10 +131,13 @@ constexpr std::size_t SingleAnisoOffset = 0x3d0000;
 constexpr std::size_t SingleAnisoSlotBytes = 0x10000;
 constexpr std::uint32_t SingleAnisoRecord = 76;
 constexpr std::uint32_t SingleAnisoCases = 5;
-constexpr std::uint32_t Records = 81;
+constexpr std::size_t FloatAnisoOffset = 0x420000;
+constexpr std::size_t FloatAnisoSlotBytes = 0x10000;
+constexpr std::uint32_t FloatAnisoRecord = 81;
+constexpr std::uint32_t Records = 88;
 constexpr std::size_t SrtOffset = 0x30000;
 constexpr std::size_t TableOffset = 0x30100;
-constexpr std::size_t KeysOffset = 0x31100;
+constexpr std::size_t KeysOffset = 0x31200;
 constexpr std::size_t RowsOffset = 0x40000;
 constexpr std::size_t OutputOffset = 0x50000;
 constexpr std::size_t RowsBytes = OutputOffset - RowsOffset;
@@ -639,6 +643,11 @@ void RunTests(AgcDriver::VulkanDevice& device) {
         }
     }
     for (std::uint32_t slot = 0; slot < SingleAnisoCases; ++slot) std::memcpy(block.At<std::uint8_t>(SingleAnisoOffset + slot * SingleAnisoSlotBytes), GuestSampledTableAnisoRgba8Data::Rgba8AnisoNoise.data(), sizeof(GuestSampledTableAnisoRgba8Data::Rgba8AnisoNoise));
+    {
+        namespace AnisoFloat = GuestSampledTableAnisoFloatData;
+        const std::array<const std::array<std::uint32_t, 16384>*, 7> floatMemories{&AnisoFloat::Half16Memory, &AnisoFloat::Half16Memory, &AnisoFloat::Half16Memory, &AnisoFloat::R11g11b10fMemory, &AnisoFloat::Float32Memory, &AnisoFloat::Float32Memory, &AnisoFloat::Bc6hMemory};
+        for (std::size_t slot = 0; slot < floatMemories.size(); ++slot) std::memcpy(block.At<std::uint8_t>(FloatAnisoOffset + slot * FloatAnisoSlotBytes), floatMemories[slot]->data(), sizeof(*floatMemories[slot]));
+    }
     std::memcpy(block.At<std::uint8_t>(R16Offset), GuestSampledTableDerivativeData::R16Memory.data(), sizeof(GuestSampledTableDerivativeData::R16Memory));
     std::memcpy(block.At<std::uint8_t>(R32fOffset), GuestSampledTableDerivativeData::R32fMemory.data(), sizeof(GuestSampledTableDerivativeData::R32fMemory));
     std::memcpy(block.At<std::uint8_t>(R32fLoadOffset), GuestSampledTableDerivativeData::R32fMemory.data(), sizeof(GuestSampledTableDerivativeData::R32fMemory));
@@ -763,6 +772,13 @@ void RunTests(AgcDriver::VulkanDevice& device) {
         TextureWords(block.At<std::uint8_t>(SingleAnisoOffset + 2u * SingleAnisoSlotBytes), formatR16, 128, 64, swizzle256BS, 0),
         TextureWords(block.At<std::uint8_t>(SingleAnisoOffset + 3u * SingleAnisoSlotBytes), formatR16, 128, 64, swizzle256BS, 0),
         TextureWords(block.At<std::uint8_t>(SingleAnisoOffset + 4u * SingleAnisoSlotBytes), formatR16, 120, 68, swizzle256BS, 0),
+        TextureWords(block.At<std::uint8_t>(FloatAnisoOffset), 71u, 128, 64, swizzle256BS, 0),
+        TextureWords(block.At<std::uint8_t>(FloatAnisoOffset + FloatAnisoSlotBytes), 71u, 128, 64, swizzle256BS, 0),
+        TextureWords(block.At<std::uint8_t>(FloatAnisoOffset + 2u * FloatAnisoSlotBytes), 13u, 128, 64, swizzle256BS, 0),
+        TextureWords(block.At<std::uint8_t>(FloatAnisoOffset + 3u * FloatAnisoSlotBytes), 36u, 128, 64, swizzle256BS, 0),
+        TextureWords(block.At<std::uint8_t>(FloatAnisoOffset + 4u * FloatAnisoSlotBytes), formatR32f, 128, 64, swizzle256BS, 0),
+        TextureWords(block.At<std::uint8_t>(FloatAnisoOffset + 5u * FloatAnisoSlotBytes), formatR32f, 128, 64, swizzle256BS, 0),
+        TextureWords(block.At<std::uint8_t>(FloatAnisoOffset + 6u * FloatAnisoSlotBytes), 179u, 128, 64, swizzle256BS, 0),
     };
     auto* table = block.At<std::uint32_t>(TableOffset);
     for (std::size_t record = 0; record < records.size(); ++record) std::copy(records[record].begin(), records[record].end(), table + record * (Stride / 4u) + 4u);
@@ -840,6 +856,16 @@ void RunTests(AgcDriver::VulkanDevice& device) {
         RunCase(device, block, {"r16-aniso/trilinear", SingleAnisoRecord + 2u, AnisoSampler(3, 3, 2), Formats::AnisoFormatsRows, AnisoSingle::R16AnisoTrilinear, 8});
         RunCase(device, block, {"r16-aniso/point", SingleAnisoRecord + 3u, AnisoSampler(3, 3, 1), Formats::AnisoFormatsRows, AnisoSingle::R16AnisoPoint, 8});
         RunCase(device, block, {"r16-npot-aniso/trilinear", SingleAnisoRecord + 4u, AnisoSampler(3, 3, 2), Formats::AnisoFormatsRows, AnisoSingle::R16AnisoNpot, 8});
+    }
+    {
+        namespace AnisoFloat = GuestSampledTableAnisoFloatData;
+        RunCase(device, block, {"rgba16f-aniso/trilinear", FloatAnisoRecord, AnisoSampler(3, 3, 2), Formats::AnisoFormatsRows, AnisoFloat::Rgba16fAnisoTrilinear, 8});
+        RunCase(device, block, {"rgba16f-aniso/point", FloatAnisoRecord + 1u, AnisoSampler(3, 3, 1), Formats::AnisoFormatsRows, AnisoFloat::Rgba16fAnisoPoint, 8});
+        RunCase(device, block, {"r16f-aniso/trilinear", FloatAnisoRecord + 2u, AnisoSampler(3, 3, 2), Formats::AnisoFormatsRows, AnisoFloat::R16fAnisoTrilinear, 8});
+        RunCase(device, block, {"r11g11b10f-aniso/trilinear", FloatAnisoRecord + 3u, AnisoSampler(3, 3, 2), Formats::AnisoFormatsRows, AnisoFloat::R11g11b10fAnisoTrilinear, 8});
+        RunCase(device, block, {"r32f-aniso/trilinear", FloatAnisoRecord + 4u, AnisoSampler(3, 3, 2), Formats::AnisoFormatsRows, AnisoFloat::R32fAnisoTrilinear, 8});
+        RunCase(device, block, {"r32f-aniso/point", FloatAnisoRecord + 5u, AnisoSampler(3, 3, 1), Formats::AnisoFormatsRows, AnisoFloat::R32fAnisoPoint, 8});
+        RunCase(device, block, {"bc6h-aniso/trilinear", FloatAnisoRecord + 6u, AnisoSampler(3, 3, 2), Formats::AnisoFormatsRows, AnisoFloat::Bc6hAnisoTrilinear, 8});
     }
     RunCase(device, block, {"bc7/point", 1, Sampler(0, 0, 0), Bc7PointRows, Bc7Point});
     RunCase(device, block, {"bc7-mips/point", 2, Sampler(0, 0, 1), Bc7MipRows, Bc7MipPoint});
