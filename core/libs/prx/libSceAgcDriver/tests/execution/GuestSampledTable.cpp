@@ -608,7 +608,18 @@ void RunTests(AgcDriver::VulkanDevice& device) {
     for (const auto offset : {Bc7SamplerBiasPointOffset, Bc7SamplerBiasTrilinearOffset, Bc7SamplerBiasLodOffset, Bc7SamplerBiasZeroLodOffset}) std::memcpy(block.At<std::uint8_t>(offset), GuestSampledTableData::Bc7MipMemory.data(), sizeof(GuestSampledTableData::Bc7MipMemory));
     for (const auto offset : {Bc7SrgbAnisoOneLevelOffset, Bc7SrgbAnisoNpotOffset, Bc7AnisoMinLodOffset, Bc7AnisoBiasOffset}) std::memcpy(block.At<std::uint8_t>(offset), GuestSampledTableData::Bc7MipMemory.data(), sizeof(GuestSampledTableData::Bc7MipMemory));
     for (const auto offset : {Bc1AnisoTrilinearOffset, Bc1SrgbAnisoTrilinearOffset, Bc1SrgbAnisoPointOffset, Bc4AnisoTrilinearOffset, Bc5AnisoTrilinearOffset}) std::memcpy(block.At<std::uint8_t>(offset), GuestSampledTableAnisoFormatsData::AnisoNoiseMemory.data(), sizeof(GuestSampledTableAnisoFormatsData::AnisoNoiseMemory));
-    for (std::uint32_t slot = 0; slot < Rgba8AnisoCases; ++slot) std::memcpy(block.At<std::uint8_t>(Rgba8AnisoOffset + slot * Rgba8AnisoSlotBytes), GuestSampledTableAnisoRgba8Data::Rgba8AnisoNoise.data(), sizeof(GuestSampledTableAnisoRgba8Data::Rgba8AnisoNoise));
+    for (std::uint32_t slot = 0; slot < Rgba8AnisoCases; ++slot) {
+        if (slot == 3u || slot == 4u) continue;
+        std::memcpy(block.At<std::uint8_t>(Rgba8AnisoOffset + slot * Rgba8AnisoSlotBytes), GuestSampledTableAnisoRgba8Data::Rgba8AnisoNoise.data(), sizeof(GuestSampledTableAnisoRgba8Data::Rgba8AnisoNoise));
+    }
+    {
+        const auto* noise = reinterpret_cast<const std::uint8_t*>(GuestSampledTableAnisoRgba8Data::Rgba8AnisoNoise.data());
+        for (std::uint32_t y = 0; y < 64u; ++y) {
+            for (std::uint32_t x = 0; x < 128u; ++x) {
+                for (const auto slot : {3u, 4u}) std::memcpy(block.At<std::uint8_t>(Rgba8AnisoOffset + slot * Rgba8AnisoSlotBytes) + SurfaceOffset(27u, 4u, 128u, x, y), noise + SurfaceOffset(1u, 4u, 128u, x, y), 4u);
+            }
+        }
+    }
     std::memcpy(block.At<std::uint8_t>(R16Offset), GuestSampledTableDerivativeData::R16Memory.data(), sizeof(GuestSampledTableDerivativeData::R16Memory));
     std::memcpy(block.At<std::uint8_t>(R32fOffset), GuestSampledTableDerivativeData::R32fMemory.data(), sizeof(GuestSampledTableDerivativeData::R32fMemory));
     std::memcpy(block.At<std::uint8_t>(R32fLoadOffset), GuestSampledTableDerivativeData::R32fMemory.data(), sizeof(GuestSampledTableDerivativeData::R32fMemory));
@@ -785,8 +796,8 @@ void RunTests(AgcDriver::VulkanDevice& device) {
         RunCase(device, block, {"rgba8-aniso/trilinear", Rgba8AnisoRecord, AnisoSampler(3, 3, 2), Formats::AnisoFormatsRows, Aniso8::Rgba8AnisoTrilinear, 8});
         RunCase(device, block, {"rgba8-srgb-aniso/trilinear", Rgba8AnisoRecord + 1u, AnisoSampler(3, 3, 2), Formats::AnisoFormatsRows, Aniso8::Rgba8SrgbAnisoTrilinear, 8});
         RunCase(device, block, {"rgba8-aniso/point", Rgba8AnisoRecord + 2u, AnisoSampler(3, 3, 1), Formats::AnisoFormatsRows, Aniso8::Rgba8AnisoPoint, 8});
-        RunCase(device, block, {"rgba8-rx-aniso/trilinear", Rgba8AnisoRecord + 3u, AnisoSampler(3, 3, 2), Formats::AnisoFormatsRows, Aniso8::Rgba8AnisoRx, 8});
-        RunCase(device, block, {"rgba8-srgb-rx-aniso/trilinear", Rgba8AnisoRecord + 4u, AnisoSampler(3, 3, 2), Formats::AnisoFormatsRows, Aniso8::Rgba8SrgbAnisoRx, 8});
+        RunCase(device, block, {"rgba8-rx-aniso/trilinear", Rgba8AnisoRecord + 3u, AnisoSampler(3, 3, 2), Formats::AnisoFormatsRows, Aniso8::Rgba8AnisoTrilinear, 8});
+        RunCase(device, block, {"rgba8-srgb-rx-aniso/trilinear", Rgba8AnisoRecord + 4u, AnisoSampler(3, 3, 2), Formats::AnisoFormatsRows, Aniso8::Rgba8SrgbAnisoTrilinear, 8});
         RunCase(device, block, {"rgba8-s64-aniso/trilinear", Rgba8AnisoRecord + 5u, AnisoSampler(3, 3, 2), Formats::AnisoFormatsRows, Aniso8::Rgba8AnisoS64, 8});
         RunCase(device, block, {"rgba8-npot-aniso/trilinear", Rgba8AnisoRecord + 6u, AnisoSampler(3, 3, 2), Formats::AnisoFormatsRows, Aniso8::Rgba8AnisoNpot, 8});
     }
