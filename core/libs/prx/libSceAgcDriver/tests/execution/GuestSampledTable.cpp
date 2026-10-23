@@ -50,7 +50,7 @@ using ShaderRecompiler::ShaderStage;
 constexpr std::uint32_t Lanes = 64;
 constexpr std::uint32_t MaxGroups = 64;
 constexpr std::uint32_t Stride = 48;
-constexpr std::size_t BlockBytes = 0x1c8000;
+constexpr std::size_t BlockBytes = 0x1d8000;
 constexpr std::size_t Rgba8Offset = 0x00000;
 constexpr std::size_t Bc7Offset = 0x10000;
 constexpr std::size_t Bc7MipOffset = 0x20000;
@@ -106,7 +106,8 @@ constexpr std::size_t Rgba8DepthOffset = 0x198000;
 constexpr std::uint32_t Rgba8PipeBankXor = 0x5a00;
 constexpr std::size_t Rgba8SrgbBilinearOffset = 0x1a8000;
 constexpr std::size_t Rgba8SrgbPointOffset = 0x1b8000;
-constexpr std::uint32_t Records = 54;
+constexpr std::size_t Rgba8Srgb256BOffset = 0x1c8000;
+constexpr std::uint32_t Records = 55;
 constexpr std::size_t SrtOffset = 0x30000;
 constexpr std::size_t TableOffset = 0x30100;
 constexpr std::size_t KeysOffset = 0x30c00;
@@ -521,6 +522,7 @@ void RunTests(AgcDriver::VulkanDevice& device) {
             std::memcpy(rgba8 + StandardOffset4(x, y), linear + (y * 120u + x) * 4u, 4u);
             std::memcpy(block.At<std::uint8_t>(Rgba8RenderTargetOffset) + XorOffset4(27u, x, y), linear + (y * 120u + x) * 4u, 4u);
             std::memcpy(block.At<std::uint8_t>(Rgba8DepthOffset) + XorOffset4(24u, x, y), linear + (y * 120u + x) * 4u, 4u);
+            std::memcpy(block.At<std::uint8_t>(Rgba8Srgb256BOffset) + (((y >> 3u) * 15u + (x >> 3u)) << 8u) + (StandardOffset4(x & 7u, y & 7u) & 0xffu), linear + (y * 120u + x) * 4u, 4u);
         }
     }
     std::memcpy(block.At<std::uint8_t>(Rgba8CopyOffset), rgba8, 0x10000);
@@ -617,6 +619,7 @@ void RunTests(AgcDriver::VulkanDevice& device) {
         TextureWords(block.At<std::uint8_t>(Rgba8DepthOffset + Rgba8PipeBankXor), formatRgba8, 120, 68, 24u, 0),
         TextureWords(block.At<std::uint8_t>(Rgba8SrgbBilinearOffset), formatRgba8Srgb, 120, 68, swizzle64KbS, 0),
         TextureWords(block.At<std::uint8_t>(Rgba8SrgbPointOffset), formatRgba8Srgb, 120, 68, swizzle64KbS, 0),
+        TextureWords(block.At<std::uint8_t>(Rgba8Srgb256BOffset), formatRgba8Srgb, 120, 68, swizzle256BS, 0),
     };
     auto* table = block.At<std::uint32_t>(TableOffset);
     for (std::size_t record = 0; record < records.size(); ++record) std::copy(records[record].begin(), records[record].end(), table + record * (Stride / 4u) + 4u);
@@ -665,6 +668,7 @@ void RunTests(AgcDriver::VulkanDevice& device) {
     RunCase(device, block, {"rgba8-zx/point", 51, Sampler(0, 0, 0), Rgba8Rows, Rgba8Point});
     RunCase(device, block, {"rgba8-srgb/bilinear", 52, Sampler(1, 1, 0), Rgba8Rows, GuestSampledTableSrgb8Data::Rgba8SrgbBilinear});
     RunCase(device, block, {"rgba8-srgb/point", 53, Sampler(0, 0, 0), Rgba8Rows, GuestSampledTableSrgb8Data::Rgba8SrgbPoint});
+    RunCase(device, block, {"rgba8-srgb-256b/bilinear", 54, Sampler(1, 1, 0), Rgba8Rows, GuestSampledTableSrgb8Data::Rgba8SrgbBilinear});
     RunCase(device, block, {"bc7/point", 1, Sampler(0, 0, 0), Bc7PointRows, Bc7Point});
     RunCase(device, block, {"bc7-mips/point", 2, Sampler(0, 0, 1), Bc7MipRows, Bc7MipPoint});
     RunCase(device, block, {"rgba8/point", 3, Sampler(0, 0, 0), Rgba8Rows, Rgba8Point});
