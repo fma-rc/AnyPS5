@@ -348,7 +348,7 @@ Level levelLayout(uint width, uint height, uint levelCount, uint swizzle, uint b
 }
 
 uint bytesPerElementOf(uint format) {
-    if (format == 56u || format == 22u) return 4u;
+    if (format == 56u || format == 130u || format == 22u) return 4u;
     if (format == 7u) return 2u;
     if (format == 169u || format == 170u || format == 175u) return 8u;
     return 16u;
@@ -487,7 +487,7 @@ uvec4 fetchTexel(uint64_t base, int x, int y, uint format, Level level, uint swi
         if (format == 7u) word = (elementOffset & 2u) != 0u ? word >> 16 : word & 0xffffu;
         return uvec4(word);
     }
-    if (format == 56u) {
+    if (format == 56u || format == 130u) {
         uint word = guestLoad32(base + uint64_t(elementByte(uint(x), uint(y), level.width, 4u, swizzle)));
         return uvec4(word & 0xffu, (word >> 8) & 0xffu, (word >> 16) & 0xffu, word >> 24);
     }
@@ -1046,8 +1046,8 @@ uvec4 sampleGuest(uvec4 tlow, uvec4 thigh, uvec4 ssharp, uvec4 row, uvec4 deriva
     uint magFilter = (ssharp.z >> 20) & 3u;
     uint minFilter = (ssharp.z >> 22) & 3u;
     uint mipFilter = (ssharp.z >> 26) & 3u;
-    bool knownFormat = format == 7u || format == 22u || format == 56u || format == 169u || format == 170u || format == 175u || format == 177u || format == 179u || format == 181u || format == 182u;
-    bool srgb = format == 170u || format == 182u;
+    bool knownFormat = format == 7u || format == 22u || format == 56u || format == 130u || format == 169u || format == 170u || format == 175u || format == 177u || format == 179u || format == 181u || format == 182u;
+    bool srgb = format == 130u || format == 170u || format == 182u;
     bool anisoTaps = magFilter == 3u && minFilter == 3u && anisoRatio == 1u;
     bool supported = knownFormat && type == 9u && (clampX == 0u || clampX == 2u) && (clampY == 0u || clampY == 2u);
     supported = supported && (anisoTaps || (magFilter == minFilter && magFilter <= 1u && anisoRatio <= 1u));
@@ -1285,7 +1285,7 @@ uvec4 loadGuest(uvec4 tlow, uvec4 thigh, uvec4 coord, uvec4 memory, out uint fau
     guestOrigin = base;
     uint type = (t3 >> 28) & 0xfu;
     uint maxMip = (thigh.y >> 4) & 0xfu;
-    bool knownFormat = format == 7u || format == 22u || format == 56u || format == 169u || format == 170u || format == 175u || format == 177u || format == 179u || format == 181u || format == 182u;
+    bool knownFormat = format == 7u || format == 22u || format == 56u || format == 130u || format == 169u || format == 170u || format == 175u || format == 177u || format == 179u || format == 181u || format == 182u;
     if (!knownFormat || type != 9u || baseLevel != 0u || maxMip != lastLevel) return uvec4(0u);
     uint levelIndex = coord.z;
     Level level = levelLayout(width, height, lastLevel + 1u, swizzle, bytesPerElementOf(format), min(levelIndex, lastLevel));
@@ -1293,7 +1293,7 @@ uvec4 loadGuest(uvec4 tlow, uvec4 thigh, uvec4 coord, uvec4 memory, out uint fau
     fault = 0u;
     if (levelIndex > lastLevel || levelIndex < (((t1 >> 8) & 0xfffu) >> 8) || coord.x >= level.width || coord.y >= level.height) return uvec4(0u);
     uvec4 texel = fetchTexel(base, int(coord.x), int(coord.y), format, level, swizzle);
-    bool srgb = format == 170u || format == 182u;
+    bool srgb = format == 130u || format == 170u || format == 182u;
     uint tapWeights[8] = uint[](65536u, 0u, 0u, 0u, 0u, 0u, 0u, 0u);
     uint tapLevels[8] = uint[](0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u);
     uint levelWeights[2] = uint[](256u, 0u);

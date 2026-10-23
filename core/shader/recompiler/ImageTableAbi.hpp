@@ -144,7 +144,7 @@ constexpr bool GuestLoadSupported(const std::array<std::uint32_t, 8>& image) {
     const std::uint32_t swizzle = (image[3] >> 20u) & 0x1fu;
     const std::uint32_t type = (image[3] >> 28u) & 0xfu;
     const std::uint32_t maxMip = (image[5] >> 4u) & 0xfu;
-    const bool rgba8 = format == 56u;
+    const bool rgba8 = format == 56u || format == 130u;
     const bool single = format == 7u || format == 22u;
     const bool bc = format == 169u || format == 170u || format == 175u || format == 177u || format == 179u || format == 181u || format == 182u;
     if (!rgba8 && !single && !bc) return false;
@@ -171,7 +171,7 @@ constexpr bool GuestSampleSupported(const std::array<std::uint32_t, 8>& image, c
     const std::uint32_t magFilter = (sampler[2] >> 20u) & 3u;
     const std::uint32_t minFilter = (sampler[2] >> 22u) & 3u;
     const std::uint32_t mipFilter = (sampler[2] >> 26u) & 3u;
-    const bool rgba8 = format == 56u;
+    const bool rgba8 = format == 56u || format == 130u;
     const bool single = format == 7u || format == 22u;
     const bool bc = format == 169u || format == 170u || format == 175u || format == 177u || format == 179u || format == 181u || format == 182u;
     if (!rgba8 && !single && !bc) return false;
