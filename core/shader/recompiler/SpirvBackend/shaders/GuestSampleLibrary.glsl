@@ -537,7 +537,7 @@ uvec4 fetchTexel(uint64_t base, int x, int y, uint format, Level level, uint swi
         return uvec4(halfToFloat32(word & 0xffffu), halfToFloat32(word >> 16), halfToFloat32(high & 0xffffu), halfToFloat32(high >> 16));
     }
     if (format == 56u || format == 130u) {
-        uint word = guestLoad32(base + uint64_t(elementByte(uint(x), uint(y), level.width, 4u, swizzle)));
+        uint word = guestLoad32(base + uint64_t(level.offset + elementByte(uint(x), uint(y), level.width, 4u, swizzle)));
         return uvec4(word & 0xffu, (word >> 8) & 0xffu, (word >> 16) & 0xffu, word >> 24);
     }
     uint bytesPerElement = bytesPerElementOf(format);
@@ -1202,7 +1202,7 @@ uvec4 sampleGuest(uvec4 tlow, uvec4 thigh, uvec4 ssharp, uvec4 row, uvec4 deriva
     supported = supported && ((ssharp.x >> 12) & ~0x70u) == 0u && (anisoThreshold == 0u || anisoThreshold == 7u) && (ssharp.z & 0xfc000u) == 0u;
     supported = supported && (lastLevel == 0u || mipFilter == 1u || mipFilter == 2u);
     if (anisoTaps) {
-        bool anisoFormat = format == 13u || format == 36u || format == 71u || format == 179u || format == 22u || (format == 1u && lastLevel == 0u) || format == 7u || format == 56u || format == 130u || format == 169u || format == 170u || format == 175u || format == 181u || format == 182u;
+        bool anisoFormat = format == 13u || format == 36u || format == 71u || format == 179u || format == 22u || format == 1u || format == 7u || format == 56u || format == 130u || format == 169u || format == 170u || format == 175u || format == 181u || format == 182u;
         supported = supported && anisoFormat && row.w == 1u && samplerMinLod == 0u && samplerMaxLod >= (lastLevel << 8);
     }
     if (!supported) {

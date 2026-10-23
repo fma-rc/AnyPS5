@@ -180,7 +180,7 @@ constexpr bool GuestSampleSupported(const std::array<std::uint32_t, 8>& image, c
     const bool bc = format == 169u || format == 170u || format == 175u || format == 177u || format == 179u || format == 181u || format == 182u;
     if (!rgba8 && !single && !plain && !bc) return false;
     if ((type != 9u && (type != 13u || (image[4] >> 16u) != 0u)) || baseLevel != 0u || maxMip != lastLevel || std::max(textureMinLod, samplerMinLod) > (lastLevel << 8u)) return false;
-    if (rgba8 ? (swizzle != 0u && swizzle != 1u && swizzle != 9u && swizzle != 24u && swizzle != 27u) || lastLevel != 0u : single ? (swizzle != 0u && swizzle != 1u && swizzle != 24u && swizzle != 27u) || ((swizzle == 24u || swizzle == 27u) && lastLevel != 0u) : plain ? (swizzle != 0u && swizzle != 1u && swizzle != 24u && swizzle != 27u) || (lastLevel != 0u && (!anisoTaps || swizzle == 24u || swizzle == 27u)) : swizzle != 0u && swizzle != 1u && swizzle != 5u && swizzle != 9u) return false;
+    if (rgba8 ? (swizzle != 0u && swizzle != 1u && swizzle != 9u && swizzle != 24u && swizzle != 27u) || (lastLevel != 0u && (format == 130u || swizzle != 1u)) : single ? (swizzle != 0u && swizzle != 1u && swizzle != 24u && swizzle != 27u) || ((swizzle == 24u || swizzle == 27u) && lastLevel != 0u) : plain ? (swizzle != 0u && swizzle != 1u && swizzle != 24u && swizzle != 27u) || (lastLevel != 0u && swizzle != 1u) : swizzle != 0u && swizzle != 1u && swizzle != 5u && swizzle != 9u) return false;
     for (std::uint32_t channel = 0; channel < 4u; ++channel) {
         const std::uint32_t selector = (image[3] >> (channel * 3u)) & 7u;
         if (selector == 2u || selector == 3u) return false;
@@ -192,7 +192,7 @@ constexpr bool GuestSampleSupported(const std::array<std::uint32_t, 8>& image, c
     if ((sampler[0] & 0xe00u) != (anisoRatio << 9u) || ((sampler[0] >> 12u) & ~0x70u) != 0u || (anisoThreshold != 0u && anisoThreshold != 7u) || (sampler[2] & 0xfc000u) != 0u) return false;
     if (anisoTaps) {
         const std::uint32_t samplerMaxLod = (sampler[1] >> 12u) & 0xfffu;
-        if (((format != 1u || lastLevel != 0u) && format != 7u && format != 13u && format != 36u && format != 71u && format != 179u && format != 22u && format != 56u && format != 130u && format != 169u && format != 170u && format != 175u && format != 181u && format != 182u) || samplerMinLod != 0u || samplerMaxLod < (lastLevel << 8u)) return false;
+        if ((format != 1u && format != 7u && format != 13u && format != 36u && format != 71u && format != 179u && format != 22u && format != 56u && format != 130u && format != 169u && format != 170u && format != 175u && format != 181u && format != 182u) || samplerMinLod != 0u || samplerMaxLod < (lastLevel << 8u)) return false;
     }
     if (lastLevel != 0u && mipFilter != 1u && mipFilter != 2u) return false;
     if (single && !anisoTaps && lastLevel != 0u && mipFilter == 2u) return false;
