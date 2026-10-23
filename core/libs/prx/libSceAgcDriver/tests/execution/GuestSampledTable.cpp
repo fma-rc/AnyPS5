@@ -17,6 +17,7 @@
 #include "GuestSampledTableSamplerBiasData.hpp"
 #include "GuestSampledTableWrapData.hpp"
 #include "GuestSampledTableNpotAnisoData.hpp"
+#include "GuestSampledTableSrgb8Data.hpp"
 #include <algorithm>
 #include <array>
 #include <bit>
@@ -49,7 +50,7 @@ using ShaderRecompiler::ShaderStage;
 constexpr std::uint32_t Lanes = 64;
 constexpr std::uint32_t MaxGroups = 64;
 constexpr std::uint32_t Stride = 48;
-constexpr std::size_t BlockBytes = 0x1a8000;
+constexpr std::size_t BlockBytes = 0x1c8000;
 constexpr std::size_t Rgba8Offset = 0x00000;
 constexpr std::size_t Bc7Offset = 0x10000;
 constexpr std::size_t Bc7MipOffset = 0x20000;
@@ -103,7 +104,9 @@ constexpr std::size_t Bc7Npot100x52TrilinearOffset = 0x17d000;
 constexpr std::size_t Rgba8RenderTargetOffset = 0x188000;
 constexpr std::size_t Rgba8DepthOffset = 0x198000;
 constexpr std::uint32_t Rgba8PipeBankXor = 0x5a00;
-constexpr std::uint32_t Records = 52;
+constexpr std::size_t Rgba8SrgbBilinearOffset = 0x1a8000;
+constexpr std::size_t Rgba8SrgbPointOffset = 0x1b8000;
+constexpr std::uint32_t Records = 54;
 constexpr std::size_t SrtOffset = 0x30000;
 constexpr std::size_t TableOffset = 0x30100;
 constexpr std::size_t KeysOffset = 0x30c00;
@@ -521,6 +524,8 @@ void RunTests(AgcDriver::VulkanDevice& device) {
         }
     }
     std::memcpy(block.At<std::uint8_t>(Rgba8CopyOffset), rgba8, 0x10000);
+    std::memcpy(block.At<std::uint8_t>(Rgba8SrgbBilinearOffset), rgba8, 0x10000);
+    std::memcpy(block.At<std::uint8_t>(Rgba8SrgbPointOffset), rgba8, 0x10000);
     std::memcpy(block.At<std::uint8_t>(Bc7Offset), GuestSampledTableData::Bc7Memory.data(), sizeof(GuestSampledTableData::Bc7Memory));
     std::memcpy(block.At<std::uint8_t>(Bc7CopyOffset), GuestSampledTableData::Bc7Memory.data(), sizeof(GuestSampledTableData::Bc7Memory));
     std::memcpy(block.At<std::uint8_t>(Bc7MipOffset), GuestSampledTableData::Bc7MipMemory.data(), sizeof(GuestSampledTableData::Bc7MipMemory));
@@ -545,6 +550,7 @@ void RunTests(AgcDriver::VulkanDevice& device) {
     std::memcpy(block.At<std::uint8_t>(Bc7CentreOffset), GuestSampledTableData::Bc7MipMemory.data(), sizeof(GuestSampledTableData::Bc7MipMemory));
     std::memcpy(block.At<std::uint8_t>(Bc7LoadMinLodOffset), GuestSampledTableData::Bc7MipMemory.data(), sizeof(GuestSampledTableData::Bc7MipMemory));
     constexpr std::uint32_t formatRgba8 = 56;
+    constexpr std::uint32_t formatRgba8Srgb = 130;
     constexpr std::uint32_t formatBc7 = 181;
     constexpr std::uint32_t formatBc7Srgb = 182;
     constexpr std::uint32_t swizzle64KbS = 9;
@@ -609,6 +615,8 @@ void RunTests(AgcDriver::VulkanDevice& device) {
         TextureWords(block.At<std::uint8_t>(Bc7Npot100x52TrilinearOffset), formatBc7, 100, 52, swizzle4KbS, 3),
         TextureWords(block.At<std::uint8_t>(Rgba8RenderTargetOffset + Rgba8PipeBankXor), formatRgba8, 120, 68, 27u, 0),
         TextureWords(block.At<std::uint8_t>(Rgba8DepthOffset + Rgba8PipeBankXor), formatRgba8, 120, 68, 24u, 0),
+        TextureWords(block.At<std::uint8_t>(Rgba8SrgbBilinearOffset), formatRgba8Srgb, 120, 68, swizzle64KbS, 0),
+        TextureWords(block.At<std::uint8_t>(Rgba8SrgbPointOffset), formatRgba8Srgb, 120, 68, swizzle64KbS, 0),
     };
     auto* table = block.At<std::uint32_t>(TableOffset);
     for (std::size_t record = 0; record < records.size(); ++record) std::copy(records[record].begin(), records[record].end(), table + record * (Stride / 4u) + 4u);
@@ -655,6 +663,8 @@ void RunTests(AgcDriver::VulkanDevice& device) {
     RunCase(device, block, {"bc7-npot-uneven/aniso-trilinear", 49, AnisoSampler(3, 3, 2), Npot::Bc7Npot100x52AnisoRows, Npot::Bc7Npot100x52AnisoTrilinear, 8});
     RunCase(device, block, {"rgba8-rx/bilinear", 50, Sampler(1, 1, 0), Rgba8Rows, Rgba8Bilinear});
     RunCase(device, block, {"rgba8-zx/point", 51, Sampler(0, 0, 0), Rgba8Rows, Rgba8Point});
+    RunCase(device, block, {"rgba8-srgb/bilinear", 52, Sampler(1, 1, 0), Rgba8Rows, GuestSampledTableSrgb8Data::Rgba8SrgbBilinear});
+    RunCase(device, block, {"rgba8-srgb/point", 53, Sampler(0, 0, 0), Rgba8Rows, GuestSampledTableSrgb8Data::Rgba8SrgbPoint});
     RunCase(device, block, {"bc7/point", 1, Sampler(0, 0, 0), Bc7PointRows, Bc7Point});
     RunCase(device, block, {"bc7-mips/point", 2, Sampler(0, 0, 1), Bc7MipRows, Bc7MipPoint});
     RunCase(device, block, {"rgba8/point", 3, Sampler(0, 0, 0), Rgba8Rows, Rgba8Point});
