@@ -1745,7 +1745,7 @@ ResolvedImageTables ResourceMaterializer::ResolveImageTables(const ShaderInfo& i
     std::vector<bool> elementGather;
     std::vector<std::uint32_t> elementWhy;
     const auto guestMode = [](const ImageResource& mode) {
-        return mode.conversionFormat == IrBufferFormat::Invalid && !mode.depthBits && !mode.depthUnorm16 && !mode.srgbDecode && !mode.constantSwizzle && !mode.packed && !mode.cube && !mode.depthCompare && mode.emulatedCompare == 0u && mode.packedFormat == IrBufferFormat::Invalid && mode.dimension == RdnaImageDimension::Dim2D && mode.numericClass == IrTextureNumericClass::Float;
+        return mode.conversionFormat == IrBufferFormat::Invalid && !mode.depthBits && !mode.depthUnorm16 && !mode.srgbDecode && !mode.constantSwizzle && !mode.packed && !mode.cube && !mode.depthCompare && (mode.emulatedCompare & ~(EmulatedCompare::ConvertedSampleUnsupported | EmulatedCompare::ConvertedSampleRequiresSingleLevel)) == 0u && mode.packedFormat == IrBufferFormat::Invalid && mode.dimension == RdnaImageDimension::Dim2D && mode.numericClass == IrTextureNumericClass::Float;
     };
     std::vector<std::uint32_t> directSamplers(info.images.size(), 0u);
     for (const auto& pair : info.sampledPairs) {
