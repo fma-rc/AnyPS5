@@ -731,8 +731,8 @@ void RunTests(AgcDriver::VulkanDevice& device) {
         TextureWords(block.At<std::uint8_t>(Rgba8AnisoOffset), formatRgba8, 128, 64, swizzle256BS, 0),
         TextureWords(block.At<std::uint8_t>(Rgba8AnisoOffset + Rgba8AnisoSlotBytes), formatRgba8Srgb, 128, 64, swizzle256BS, 0),
         TextureWords(block.At<std::uint8_t>(Rgba8AnisoOffset + 2u * Rgba8AnisoSlotBytes), formatRgba8, 128, 64, swizzle256BS, 0),
-        TextureWords(block.At<std::uint8_t>(Rgba8AnisoOffset + 3u * Rgba8AnisoSlotBytes), formatRgba8, 128, 64, 27u, 0),
-        TextureWords(block.At<std::uint8_t>(Rgba8AnisoOffset + 4u * Rgba8AnisoSlotBytes), formatRgba8Srgb, 128, 64, 27u, 0),
+        TextureWords(block.At<std::uint8_t>(Rgba8AnisoOffset + 3u * Rgba8AnisoSlotBytes + Rgba8PipeBankXor), formatRgba8, 128, 64, 27u, 0),
+        TextureWords(block.At<std::uint8_t>(Rgba8AnisoOffset + 4u * Rgba8AnisoSlotBytes + Rgba8PipeBankXor), formatRgba8Srgb, 128, 64, 27u, 0),
         TextureWords(block.At<std::uint8_t>(Rgba8AnisoOffset + 5u * Rgba8AnisoSlotBytes), formatRgba8, 128, 64, swizzle64KbS, 0),
         TextureWords(block.At<std::uint8_t>(Rgba8AnisoOffset + 6u * Rgba8AnisoSlotBytes), formatRgba8, 120, 68, swizzle256BS, 0),
     };
