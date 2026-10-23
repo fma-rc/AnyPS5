@@ -4950,10 +4950,10 @@ bool GuestElementPromoted(const std::array<std::uint32_t, 8>& words) {
 }
 
 // The guest sampler reads the surface in place through its host import's device address: only a
-// surface inside one import, with no DCC, pipe-bank swizzle, array, MSAA or border swizzle, and whose
+// surface inside one import, with no DCC, array, MSAA or border swizzle, and whose
 // bytes no storage image or unit shadow holds newer results for (those keep the host path).
 bool GuestSampledEligible(const GuestTextureResource& resource, std::uint64_t guestBytes, bool firstLayer) {
-    if (firstLayer || resource.dccAddress != 0 || resource.pipeBankXor != 0 || resource.bcSwizzle != 0 || resource.baseArray != 0 || resource.samples != 1 || resource.dimension != TextureDimension::k2D) return false;
+    if (firstLayer || resource.dccAddress != 0 || resource.bcSwizzle != 0 || resource.baseArray != 0 || resource.samples != 1 || resource.dimension != TextureDimension::k2D) return false;
     if (guestBytes == 0 || guestBytes > std::numeric_limits<std::uint32_t>::max()) return false;
     const std::array ranges{std::pair{resource.baseAddress, resource.baseAddress + guestBytes}};
     return !StorageTexture::AnyPendingOverlaps(ranges) && !AnyShadowedOverlaps(ranges);
