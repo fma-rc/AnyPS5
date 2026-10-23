@@ -752,8 +752,15 @@ uint floatFilter(uint values[8], uint weights[8], uint tapLevels[8], uint tapCou
     return roundFilterSum(high, low, negative, lowest - 44);
 }
 
+uint anisoCornerWeight(uint fractions[4], uint levelWeights[2], uint i) {
+    uint fraction = fractions[i >> 2];
+    uint wx = fraction & 0xffu;
+    uint wy = fraction >> 8;
+    return ((i & 1u) != 0u ? wx : 256u - wx) * ((i & 2u) != 0u ? wy : 256u - wy) * levelWeights[i >> 3];
+}
+
 uint anisoFloatFilter(uint values[16], uint fractions[4], uint levelSlots, uint levelWeights[2]) {
-    int largest[2] = int[](-1000, -1000);
+    int largest[4] = int[](-1000, -1000, -1000, -1000);
     bool allNegativeZero = true;
     for (uint i = 0u; i < levelSlots * 8u; ++i) {
         uint biased = (values[i] >> 23) & 0xffu;
@@ -762,45 +769,49 @@ uint anisoFloatFilter(uint values[16], uint fractions[4], uint levelSlots, uint 
             return FaultCode;
         }
         if (values[i] != 0x80000000u) allNegativeZero = false;
-        if (biased != 0u) largest[i >> 3] = max(largest[i >> 3], int(biased) - 127);
+        if (biased != 0u && anisoCornerWeight(fractions, levelWeights, i) != 0u) largest[i >> 2] = max(largest[i >> 2], int(biased) - 127);
     }
-    if (largest[0] == -1000 && largest[1] == -1000) return allNegativeZero ? 0x80000000u : 0u;
-    int64_t levelSums[2] = int64_t[](int64_t(0), int64_t(0));
-    for (uint i = 0u; i < levelSlots * 8u; ++i) {
-        uint biased = (values[i] >> 23) & 0xffu;
-        if (biased == 0u) continue;
-        uint fraction = fractions[i >> 2];
-        uint wx = fraction & 0xffu;
-        uint wy = fraction >> 8;
-        uint weight = ((i & 1u) != 0u ? wx : 256u - wx) * ((i & 2u) != 0u ? wy : 256u - wy) * levelWeights[i >> 3];
-        if (weight == 0u) continue;
-        uint shift = uint(largest[i >> 3] - (int(biased) - 127) + 3);
-        uint mantissa = (values[i] & 0x7fffffu) | 0x800000u;
-        int64_t gridValue = int64_t(shift >= 32u ? 0u : mantissa >> shift);
-        if ((values[i] & 0x80000000u) != 0u) gridValue = -gridValue;
-        levelSums[i >> 3] += gridValue * int64_t(weight);
+    int lowest = 1000;
+    for (uint tap = 0u; tap < levelSlots * 2u; ++tap) {
+        if (largest[tap] != -1000) lowest = min(lowest, largest[tap]);
     }
-    uint upper = largest[1] > largest[0] ? 1u : 0u;
-    int lowest = largest[1 - upper] == -1000 ? largest[upper] : largest[1 - upper];
-    int gap = largest[upper] - lowest;
+    if (lowest == 1000) return allNegativeZero ? 0x80000000u : 0u;
     uint64_t high = uint64_t(0);
     uint64_t low = uint64_t(0);
-    bool negative = false;
-    if (gap <= 15) {
-        int64_t sum = (levelSums[upper] << uint(gap)) + levelSums[1 - upper];
-        negative = sum < int64_t(0);
-        low = uint64_t(negative ? -sum : sum);
-    } else {
-        if (levelSums[0] < int64_t(0) || levelSums[1] < int64_t(0)) {
+    for (uint tap = 0u; tap < levelSlots * 2u; ++tap) {
+        if (largest[tap] == -1000) continue;
+        int64_t tapSum = int64_t(0);
+        for (uint corner = 0u; corner < 4u; ++corner) {
+            uint i = tap * 4u + corner;
+            uint biased = (values[i] >> 23) & 0xffu;
+            uint weight = anisoCornerWeight(fractions, levelWeights, i);
+            if (biased == 0u || weight == 0u) continue;
+            uint shift = uint(largest[tap] - (int(biased) - 127) + 3);
+            uint mantissa = (values[i] & 0x7fffffu) | 0x800000u;
+            int64_t gridValue = int64_t(shift >= 32u ? 0u : mantissa >> shift);
+            if ((values[i] & 0x80000000u) != 0u) gridValue = -gridValue;
+            tapSum += gridValue * int64_t(weight);
+        }
+        uint gap = uint(largest[tap] - lowest);
+        if (gap >= 64u) {
             faulted = true;
             return FaultCode;
         }
-        uint64_t upperSum = uint64_t(levelSums[upper]);
-        high = gap >= 64 ? upperSum << uint(gap - 64) : upperSum >> uint(64 - gap);
-        low = gap >= 64 ? uint64_t(0) : upperSum << uint(gap);
-        uint64_t added = low + uint64_t(levelSums[1 - upper]);
-        if (added < low) high += uint64_t(1);
-        low = added;
+        uint64_t magnitude = uint64_t(tapSum < int64_t(0) ? -tapSum : tapSum);
+        uint64_t addHigh = gap == 0u ? uint64_t(0) : magnitude >> (64u - gap);
+        uint64_t addLow = magnitude << gap;
+        if (tapSum < int64_t(0)) {
+            addLow = ~addLow + uint64_t(1);
+            addHigh = ~addHigh + (addLow == uint64_t(0) ? uint64_t(1) : uint64_t(0));
+        }
+        uint64_t sumLow = low + addLow;
+        high += addHigh + (sumLow < low ? uint64_t(1) : uint64_t(0));
+        low = sumLow;
+    }
+    bool negative = int64_t(high) < int64_t(0);
+    if (negative) {
+        low = ~low + uint64_t(1);
+        high = ~high + (low == uint64_t(0) ? uint64_t(1) : uint64_t(0));
     }
     if (high == uint64_t(0) && low == uint64_t(0)) return 0u;
     return roundFilterSum(high, low, negative, lowest - 45);
