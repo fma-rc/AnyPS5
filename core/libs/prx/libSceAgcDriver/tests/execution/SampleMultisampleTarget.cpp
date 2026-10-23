@@ -2,12 +2,16 @@
 #include "prx/libSceAgcDriver/Execution/include/VulkanDevice.hpp"
 #include "prx/libSceAgcDriver/Execution/include/Driver/Shaders/ShaderRegistry.hpp"
 #include "prx/libSceAgcDriver/Graphics/include/ColorTargetLayout.hpp"
+#include "prx/libSceAgcDriver/Graphics/include/DepthSurface.hpp"
 #include "prx/libSceAgcDriver/Graphics/include/Draw.hpp"
 #include "prx/libSceAgcDriver/Graphics/include/GuestBufferMemory.hpp"
 #include "prx/libSceAgcDriver/Graphics/include/MultisampleTarget.hpp"
 #include "prx/libSceAgcDriver/Graphics/include/ShaderInputState.hpp"
 #include "prx/libSceAgcDriver/Graphics/include/State.hpp"
 #include "prx/libc/include/GuestAllocations.hpp"
+#include "prx/libc/include/GuestArena.hpp"
+#include "prx/libc/include/GuestWriteWatch.hpp"
+#include "prx/libSceAgcDriver/Graphics/include/ShaderResources.hpp"
 #include "Recompiler.hpp"
 #include "Optimization/ResourceProgram.hpp"
 #include "VulkanTestDevice.hpp"
@@ -16,6 +20,8 @@
 #define NOMINMAX
 #endif
 #include <windows.h>
+#else
+#include <sys/mman.h>
 #endif
 #include <algorithm>
 #include <array>
@@ -61,6 +67,9 @@ constexpr std::uint32_t Unorm8x4SwappedInfo = 0x8828u;
 constexpr std::uint32_t Format8888Unorm = 56;
 constexpr std::uint32_t Type2DMsaa = 14;
 constexpr std::uint32_t TileRenderTarget = 0x1b;
+constexpr std::uint32_t TileZ64KBX = 0x18;
+constexpr std::uint32_t TileS64KBX = 0x19;
+constexpr std::uint32_t TileD64KBX = 0x1a;
 constexpr std::uint32_t Threads = 32;
 constexpr std::uint32_t Words = 32;
 constexpr std::uint32_t LoadResult = 12;
@@ -90,6 +99,13 @@ alignas(256) constexpr std::array<std::uint32_t, 26> LoadCode{
     0x80001301, 0xbf810000,
 };
 
+alignas(256) constexpr std::array<std::uint32_t, 26> ArrayLoadCode{
+    0x34020087, 0xe0301000, 0x80000201, 0xe0301004, 0x80000301, 0xe0301008, 0x80000401, 0xe030100c,
+    0x80000501, 0xe0301010, 0x80000601, 0xe0301014, 0x80000701, 0xbf8c3f70, 0xf0001f38, 0x00011004,
+    0xbf8c3f70, 0xe0701030, 0x80001001, 0xe0701034, 0x80001101, 0xe0701038, 0x80001201, 0xe070103c,
+    0x80001301, 0xbf810000,
+};
+
 alignas(256) constexpr std::array<std::uint32_t, 19> StoreCode{
     0x34020087, 0xe030100c, 0x80000501, 0xe0301010, 0x80000601, 0xe0301014, 0x80000701, 0xe0301018,
     0x80001001, 0xe030101c, 0x80001101, 0xe0301020, 0x80001201, 0xe0301024, 0x80001301, 0xbf8c3f70,
@@ -109,14 +125,31 @@ constexpr std::array<std::array<float, 4>, 3> Triangle{{
 alignas(256) std::array<std::uint32_t, Threads * Words> Buffer{};
 
 struct Block {
-    explicit Block(std::size_t bytes) : bytes(bytes) {
+    explicit Block(std::size_t bytes, bool watched = false) : bytes(bytes), watched(watched) {
 #ifdef _WIN32
-        data = static_cast<std::uint8_t*>(VirtualAlloc(nullptr, bytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+        if (watched) {
+            data = static_cast<std::uint8_t*>(GuestArena::GuestArenaAllocate_nid_postfix(bytes, BlockBytes));
+            GuestArena::GuestArenaCommit_nid_postfix(data, bytes, PAGE_READWRITE, bytes);
+        } else {
+            data = static_cast<std::uint8_t*>(VirtualAlloc(nullptr, bytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+        }
 #else
-        data = static_cast<std::uint8_t*>(std::aligned_alloc(BlockBytes, bytes));
+        if (watched) {
+            void* raw = mmap(nullptr, bytes + BlockBytes, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+            Require(raw != MAP_FAILED, "cannot map the color target");
+            const auto begin = reinterpret_cast<std::uintptr_t>(raw);
+            const auto aligned = (begin + BlockBytes - 1) & ~(static_cast<std::uintptr_t>(BlockBytes) - 1);
+            if (aligned != begin) munmap(raw, aligned - begin);
+            if (aligned + bytes != begin + bytes + BlockBytes) munmap(reinterpret_cast<void*>(aligned + bytes), begin + BlockBytes - aligned);
+            data = reinterpret_cast<std::uint8_t*>(aligned);
+            GuestWriteWatch::GuestWriteWatchRegister_nid_postfix(data, bytes);
+        } else {
+            data = static_cast<std::uint8_t*>(std::aligned_alloc(BlockBytes, bytes));
+        }
 #endif
-        Require(data != nullptr, "cannot allocate the multisampled color target");
+        Require(data != nullptr, "cannot allocate the color target");
         std::memset(data, 0, bytes);
+        Require(!watched || AgcDriver::GuestMemory::Watched(Address(), bytes), "the color target is not write-watched");
         GuestAllocations::Mutation mutation;
         mutation.Add(data, bytes, true, true, true);
     }
@@ -126,15 +159,26 @@ struct Block {
             mutation.Remove(data);
         }
 #ifdef _WIN32
-        VirtualFree(data, 0, MEM_RELEASE);
+        if (watched) {
+            GuestArena::GuestArenaReset_nid_postfix(data, bytes);
+            GuestArena::GuestArenaRelease_nid_postfix(data, bytes);
+        } else {
+            VirtualFree(data, 0, MEM_RELEASE);
+        }
 #else
-        std::free(data);
+        if (watched) {
+            munmap(data, bytes);
+            GuestWriteWatch::GuestWriteWatchUnregister_nid_postfix(data, bytes);
+        } else {
+            std::free(data);
+        }
 #endif
     }
     Block(const Block&) = delete;
     Block& operator=(const Block&) = delete;
     std::uint64_t Address() const { return reinterpret_cast<std::uintptr_t>(data); }
     std::size_t bytes;
+    bool watched;
     std::uint8_t* data = nullptr;
 };
 
@@ -203,7 +247,7 @@ AgcDriver::Graphics::State TargetState(const AgcDriver::Graphics::ColorTarget& c
     state.blends = {blend};
     state.blend = blend;
     state.blendConstants = {};
-    state.samples = Samples;
+    state.samples = color.samples;
     return state;
 }
 
@@ -249,13 +293,13 @@ void Draw(AgcDriver::VulkanDevice& device, const AgcDriver::Graphics::State& sta
     device.Draw(state, draw, shaders);
 }
 
-std::array<std::uint32_t, 8> TargetDescriptor(const Block& block, std::uint32_t sampleShift, std::uint32_t format = Format16161616Float) {
+std::array<std::uint32_t, 8> TargetDescriptor(const Block& block, std::uint32_t sampleShift, std::uint32_t format = Format16161616Float, std::uint32_t tileMode = TileRenderTarget) {
     const auto address = block.Address();
     return {
         static_cast<std::uint32_t>(address >> 8u),
         static_cast<std::uint32_t>((address >> 40u) & 0xffu) | (format << 20u) | (((Side - 1u) & 3u) << 30u),
         ((Side - 1u) >> 2u) | ((Side - 1u) << 14u),
-        0xfacu | (sampleShift << 16u) | (TileRenderTarget << 20u) | (Type2DMsaa << 28u),
+        0xfacu | (sampleShift << 16u) | (tileMode << 20u) | (Type2DMsaa << 28u),
         0u,
         sampleShift << 4u,
         0u,
@@ -281,8 +325,8 @@ ShaderRecompiler::RecompileResult CompileProgram(AgcDriver::VulkanDevice& device
     return ShaderRecompiler::Recompile(request);
 }
 
-ShaderRecompiler::RecompileResult CompileLoad(AgcDriver::VulkanDevice& device, const std::array<std::uint32_t, 8>& texture, std::vector<std::uint32_t>& userData) {
-    return CompileProgram(device, LoadCode, texture, userData);
+ShaderRecompiler::RecompileResult CompileLoad(AgcDriver::VulkanDevice& device, const std::array<std::uint32_t, 8>& texture, std::vector<std::uint32_t>& userData, bool arrayed = false) {
+    return CompileProgram(device, arrayed ? ArrayLoadCode : LoadCode, texture, userData);
 }
 
 void StoreSamples(AgcDriver::VulkanDevice& device, const std::array<std::uint32_t, 8>& texture, const std::vector<SampleWrite>& writes) {
@@ -338,25 +382,47 @@ void RequireStoreRefused(AgcDriver::VulkanDevice& device, const std::array<std::
     Require(refusal.find(expected) != std::string::npos, what + " was not refused: " + refusal);
 }
 
-std::vector<std::array<float, 4>> LoadSamples(AgcDriver::VulkanDevice& device, const Block& block, std::uint32_t format = Format16161616Float) {
+std::vector<std::array<float, 4>> RunLoad(AgcDriver::VulkanDevice& device, const std::array<std::uint32_t, 8>& texture, bool arrayed, std::uint32_t fragments) {
     std::vector<std::uint32_t> userData;
-    const auto program = CompileLoad(device, TargetDescriptor(block, SampleShift, format), userData);
-    std::vector<std::array<float, 4>> loaded(Side * Side * Samples);
+    const auto program = CompileLoad(device, texture, userData, arrayed);
+    std::vector<std::array<float, 4>> loaded(Side * Side * fragments);
+    const auto codeAddress = reinterpret_cast<std::uintptr_t>((arrayed ? ArrayLoadCode : LoadCode).data());
     for (std::uint32_t first = 0; first < loaded.size(); first += Threads) {
         Buffer.fill(0xdeadbeefu);
         for (std::uint32_t tid = 0; tid < Threads; ++tid) {
             const auto index = first + tid;
-            const auto pixel = index / Samples;
-            const std::array<std::uint32_t, 6> words{0u, 0u, 0u, pixel % Side, pixel / Side, index % Samples};
+            const auto pixel = index / fragments;
+            const std::array<std::uint32_t, 6> words = arrayed
+                ? std::array<std::uint32_t, 6>{0u, 0u, pixel % Side, pixel / Side, 0u, index % fragments}
+                : std::array<std::uint32_t, 6>{0u, 0u, 0u, pixel % Side, pixel / Side, index % fragments};
             std::copy(words.begin(), words.end(), &Buffer[tid * Words]);
         }
-        device.Dispatch(program, 1, 1, 1, {}, reinterpret_cast<std::uintptr_t>(LoadCode.data()));
+        device.Dispatch(program, 1, 1, 1, {}, codeAddress);
         device.WaitIdle();
         for (std::uint32_t tid = 0; tid < Threads; ++tid) {
             for (std::uint32_t component = 0; component < 4u; ++component) loaded[first + tid][component] = std::bit_cast<float>(Buffer[tid * Words + LoadResult + component]);
         }
     }
     return loaded;
+}
+
+std::vector<std::array<float, 4>> LoadSamples(AgcDriver::VulkanDevice& device, const std::array<std::uint32_t, 8>& texture, std::uint32_t fragments = Samples) {
+    auto loaded = RunLoad(device, texture, false, fragments);
+    const auto loadedArray = RunLoad(device, texture, true, fragments);
+    Require(loadedArray == loaded, "Dim2DMsaaArray image_load disagreed with Dim2DMsaa image_load on the multisampled color target");
+    return loaded;
+}
+
+std::vector<std::array<float, 4>> LoadSamples(AgcDriver::VulkanDevice& device, const Block& block, std::uint32_t format = Format16161616Float, std::uint32_t tileMode = TileRenderTarget) {
+    return LoadSamples(device, TargetDescriptor(block, SampleShift, format, tileMode));
+}
+
+std::array<std::uint32_t, 8> CompressedDescriptor(const Block& block, std::uint32_t tileMode, std::uint64_t htile) {
+    auto texture = TargetDescriptor(block, SampleShift, Format16161616Float, tileMode);
+    const auto meta = htile >> 8u;
+    texture[6] = (1u << 20u) | (1u << 21u) | (static_cast<std::uint32_t>(meta & 0xffu) << 24u);
+    texture[7] = static_cast<std::uint32_t>(meta >> 8u);
+    return texture;
 }
 
 double EdgeDistance(double x, double y, std::size_t from) {
@@ -610,12 +676,210 @@ int NativeVertexInput(std::unique_ptr<AgcDriver::VulkanDevice>& device) {
     return 0;
 }
 
+alignas(256) constexpr std::array<std::uint32_t, 10> NativeFmaskCode{0x34020084u, 0xe0381000u, 0x80000201u, 0xbf8c3f70u, 0xf0001f08u, 0x00020602u, 0xbf8c3f70u, 0xe0781000u, 0x80010601u, 0xbf810000u};
+alignas(256) std::array<std::uint32_t, Threads * 4u> NativeFmaskInput{};
+alignas(256) std::array<std::uint32_t, Threads * 4u + 4u> NativeFmaskOutput{};
+
+std::array<std::uint32_t, 8> NativeFmaskDescriptor(const Block& fmask, const Block& cmask, std::uint32_t pipeXor) {
+    const auto address = fmask.Address() | pipeXor;
+    const auto metadata = cmask.Address();
+    return {static_cast<std::uint32_t>(address >> 8u), static_cast<std::uint32_t>(address >> 40u) | (166u << 20u) | (((Side - 1u) & 3u) << 30u), ((Side - 1u) >> 2u) | ((Side - 1u) << 14u), 4u | (1u << 3u) | (4u << 6u) | (24u << 20u) | (9u << 28u), 0u, 0u, (1u << 19u) | (1u << 21u) | (static_cast<std::uint32_t>(metadata >> 8u) << 24u), static_cast<std::uint32_t>(metadata >> 16u)};
+}
+
+ShaderRecompiler::RecompileResult CompileNativeFmask(AgcDriver::VulkanDevice& device, const std::array<std::uint32_t, 8>& image, bool registration) {
+    std::vector<std::uint32_t> userData(16u);
+    const auto buffer = [](const void* data, std::uint32_t bytes) {
+        const auto address = reinterpret_cast<std::uintptr_t>(data);
+        return std::array<std::uint32_t, 4>{static_cast<std::uint32_t>(address), static_cast<std::uint32_t>(address >> 32u) & 0xffffu, bytes, 0x31016facu};
+    };
+    const auto input = buffer(NativeFmaskInput.data(), sizeof(NativeFmaskInput));
+    const auto output = buffer(NativeFmaskOutput.data(), Threads * 16u);
+    std::copy(input.begin(), input.end(), userData.begin());
+    std::copy(output.begin(), output.end(), userData.begin() + 4u);
+    std::copy(image.begin(), image.end(), userData.begin() + 8u);
+    const std::array<ShaderRecompiler::MemoryRegion, 1> memory{{{reinterpret_cast<std::uintptr_t>(NativeFmaskCode.data()), std::as_bytes(std::span(NativeFmaskCode))}}};
+    const ShaderRecompiler::ShaderComputeStageInfo compute{{Threads, 1u, 1u}, 0u, {false, false, false}, false, 1u};
+    auto target = device.Target();
+    target.registrationModules = registration;
+    ShaderRecompiler::RecompileRequest request{{ShaderStage::Compute, reinterpret_cast<std::uintptr_t>(NativeFmaskCode.data()), NativeFmaskCode, 0u, {}}, {32u, 0u, userData, compute, std::nullopt, std::nullopt, memory}, target, {0u, 0u, 0u, 128u}};
+    request.useCache = false;
+    return ShaderRecompiler::Recompile(request);
+}
+
+void DispatchNativeFmask(AgcDriver::VulkanDevice& device, const std::array<std::uint32_t, 8>& image, bool registration) {
+    device.Dispatch(CompileNativeFmask(device, image, registration), 1u, 1u, 1u);
+    device.WaitIdle();
+}
+
+void NativeFmask(std::unique_ptr<AgcDriver::VulkanDevice>& device) {
+    using namespace AgcDriver::Graphics;
+    Block colorMemory(4u * BlockBytes, true);
+    Block dcc(BlockBytes, true);
+    Block cmask(BlockBytes, true);
+    Block fmask(BlockBytes, true);
+    Block unrelated(BlockBytes, true);
+    struct ReleaseDevice {
+        std::unique_ptr<AgcDriver::VulkanDevice>& value;
+        ~ReleaseDevice() { value.reset(); }
+    } releaseDevice{device};
+    constexpr std::uint32_t sentinel = 0xdeadbeefu;
+    for (const auto pipeXor : {0u, 0xf00u}) {
+        std::memset(colorMemory.data, 0, colorMemory.bytes);
+        std::memset(dcc.data, 0, dcc.bytes);
+        std::memset(cmask.data, 0xcc, cmask.bytes);
+        std::memset(fmask.data, 0x11, fmask.bytes);
+        AgcDriver::Registers cx{{0x318, static_cast<std::uint32_t>(colorMemory.Address() >> 8u)}, {0x31b, 0u}, {0x31c, Float16x4Info | 0x10006000u}, {0x31d, (3u << 12u) | (3u << 15u)}, {0x31e, 0u}, {0x31f, static_cast<std::uint32_t>(cmask.Address() >> 8u)}, {0x321, static_cast<std::uint32_t>((fmask.Address() | pipeXor) >> 8u)}, {0x325, static_cast<std::uint32_t>(dcc.Address() >> 8u)}, {0x390, static_cast<std::uint32_t>(colorMemory.Address() >> 40u)}, {0x398, static_cast<std::uint32_t>(cmask.Address() >> 40u)}, {0x3a0, static_cast<std::uint32_t>(fmask.Address() >> 40u)}, {0x3a8, static_cast<std::uint32_t>(dcc.Address() >> 40u)}, {0x3b0, ((Side - 1u) << 14u) | (Side - 1u)}, {0x3b8, TiledAttrib3}};
+        const auto color = DecodeColorBuffer(cx, 0u);
+        Require(color.samples == 8u && color.cmaskAddress == cmask.Address(), "native FMASK fixture lost its decoded target association");
+        std::array<std::array<float, 4>, 8> expected{};
+        for (std::uint32_t sample = 0u; sample < 8u; ++sample) {
+            expected[sample] = {static_cast<float>(sample + 1u) / 8.0f, 0.25f, 0.5f, 1.0f};
+            auto pixel = PixelCode;
+            pixel[1] = std::bit_cast<std::uint32_t>(expected[sample][0]);
+            pixel[3] = std::bit_cast<std::uint32_t>(expected[sample][1]);
+            pixel[5] = std::bit_cast<std::uint32_t>(expected[sample][2]);
+            pixel[7] = std::bit_cast<std::uint32_t>(expected[sample][3]);
+            auto state = TargetState(color);
+            state.quadSampleMask.fill(static_cast<std::uint16_t>(1u << sample));
+            Draw(*device, state, 0u, 2u, pixel);
+        }
+        const auto native = LoadSamples(*device, TargetDescriptor(colorMemory, 3u), 8u);
+        std::vector<std::uint32_t> covered;
+        for (std::uint32_t pixel = 0; pixel < Side * Side; ++pixel) {
+            bool all = true;
+            for (std::size_t sample = 0; sample < 8u; ++sample) all = all && native[pixel * 8u + sample] == expected[sample];
+            if (all) covered.push_back(pixel);
+        }
+        Require(!covered.empty(), "native FMASK fixture did not render eight distinct sample colors");
+        for (std::uint32_t lane = 0; lane < Threads; ++lane) {
+            const auto pixel = covered[lane % covered.size()];
+            NativeFmaskInput[lane * 4u] = pixel % Side;
+            NativeFmaskInput[lane * 4u + 1u] = pixel / Side;
+            NativeFmaskInput[lane * 4u + 2u] = 0u;
+            NativeFmaskInput[lane * 4u + 3u] = 0u;
+        }
+        const auto image = NativeFmaskDescriptor(fmask, cmask, pipeXor);
+        const auto check = [&] {
+            for (std::uint32_t lane = 0; lane < Threads; ++lane) {
+                const std::array<std::uint32_t, 4> mapping{0x76543210u, 1u, 0x76543210u, 0u};
+                for (std::size_t component = 0; component < 4u; ++component) Require(NativeFmaskOutput[lane * 4u + component] == mapping[component], "native FMASK load did not preserve its expanded sample indices and selectors");
+                for (std::uint32_t sample = 0; sample < 8u; ++sample) {
+                    const auto fragment = NativeFmaskOutput[lane * 4u] >> (4u * sample) & 15u;
+                    const auto pixel = NativeFmaskInput[lane * 4u + 1u] * Side + NativeFmaskInput[lane * 4u];
+                    Require(native[pixel * 8u + fragment] == expected[sample], "native FMASK remapped a sampled color to another fragment");
+                }
+            }
+            Require(std::all_of(NativeFmaskOutput.begin() + Threads * 4u, NativeFmaskOutput.end(), [](auto word) { return word == sentinel; }), "native FMASK wrote beyond its output");
+        };
+        for (const auto registration : {false, true}) {
+            for (std::uint32_t repeat = 0; repeat < 2u; ++repeat) {
+                NativeFmaskOutput.fill(sentinel);
+                DispatchNativeFmask(*device, image, registration);
+                check();
+            }
+            const auto program = CompileNativeFmask(*device, image, registration);
+            const auto codeAddress = reinterpret_cast<std::uintptr_t>(NativeFmaskCode.data());
+            std::shared_ptr<const AgcDriver::Recipe> recipe;
+            NativeFmaskOutput.fill(sentinel);
+            device->Dispatch(program, 1u, 1u, 1u, {}, codeAddress, nullptr, &recipe);
+            device->WaitIdle();
+            check();
+            Require(recipe == nullptr, "native FMASK emitted a reusable recipe without an ownership proof");
+            const auto prepared = device->PrepareDispatch(program, {}, Threads, codeAddress);
+            Require(prepared != nullptr, "native FMASK did not prepare a deferred dispatch");
+            NativeFmaskOutput.fill(sentinel);
+            device->Dispatch(program, 1u, 1u, 1u, {}, codeAddress, prepared);
+            device->WaitIdle();
+            check();
+        }
+        Require(LoadSamples(*device, TargetDescriptor(colorMemory, 3u), 8u) == native, "FMASK sampling changed the native samples");
+        Require(std::all_of(fmask.data, fmask.data + fmask.bytes, [](auto byte) { return byte == 0x11u; }) && std::all_of(cmask.data, cmask.data + cmask.bytes, [](auto byte) { return byte == 0xccu; }), "native FMASK sampling published or changed guest metadata");
+        const auto refused = [&](const auto& descriptor, std::string_view reason) {
+            NativeFmaskOutput.fill(sentinel);
+            std::string error;
+            try { DispatchNativeFmask(*device, descriptor, false); } catch (const std::runtime_error& e) { error = e.what(); }
+            Require(error.find(reason) != std::string::npos, "native FMASK missing refusal: " + error);
+            Require(std::all_of(NativeFmaskOutput.begin(), NativeFmaskOutput.end(), [sentinel](auto word) { return word == sentinel; }), "rejected native FMASK wrote output");
+        };
+        refused(NativeFmaskDescriptor(unrelated, cmask, pipeXor), "descriptor does not match");
+        refused(NativeFmaskDescriptor(fmask, unrelated, pipeXor), "descriptor does not match");
+        refused(NativeFmaskDescriptor(fmask, cmask, pipeXor ^ 0x100u), "descriptor does not match");
+        auto resized = image;
+        resized[2] += 1u;
+        refused(resized, "extent or subresource does not match");
+        const auto deferredProgram = CompileNativeFmask(*device, image, false);
+        const auto codeAddress = reinterpret_cast<std::uintptr_t>(NativeFmaskCode.data());
+        const auto preparedBeforeStore = device->PrepareDispatch(deferredProgram, {}, Threads, codeAddress);
+        Require(preparedBeforeStore != nullptr, "native FMASK did not prepare its metadata invalidation probe");
+        std::array<std::byte, 4> same{};
+        same.fill(std::byte{0x11});
+        AgcDriver::GuestMemory::Write(fmask.Address(), same);
+        refused(image, "writes to a resident native FMASK");
+        NativeFmaskOutput.fill(sentinel);
+        std::string deferredError;
+        try {
+            device->Dispatch(deferredProgram, 1u, 1u, 1u, {}, codeAddress, preparedBeforeStore);
+            device->WaitIdle();
+        } catch (const std::runtime_error& error) {
+            deferredError = error.what();
+        }
+        Require(deferredError.find("writes to a resident native FMASK") != std::string::npos, "deferred native FMASK missed its metadata store: " + deferredError);
+        Require(std::all_of(NativeFmaskOutput.begin(), NativeFmaskOutput.end(), [](auto word) { return word == sentinel; }), "rejected deferred native FMASK wrote output");
+        device->SubmitRecorded(true);
+        device->WaitIdle();
+        ClearMultisampleTargets(device->Device());
+        ClearCachedTextures(device->Device());
+        cx[0x31c] &= ~0x2000u;
+        cx[0x31f] = 0u;
+        cx[0x398] = 0u;
+        const auto withoutCmask = DecodeColorBuffer(cx, 0u);
+        Require(withoutCmask.cmaskAddress == 0u, "the no-CMASK control retained metadata");
+        Draw(*device, TargetState(withoutCmask));
+        const auto uncompressed = LoadSamples(*device, TargetDescriptor(colorMemory, 3u), 8u);
+        Require(std::find(uncompressed.begin(), uncompressed.end(), Drawn) != uncompressed.end(), "tracking native FMASK broke ordinary DCC rendering without CMASK");
+        device->SubmitRecorded(true);
+        device->WaitIdle();
+        ClearMultisampleTargets(device->Device());
+        ClearCachedTextures(device->Device());
+        Draw(*device, TargetState(color));
+        auto recreated = color;
+        recreated.pipeBankXor ^= 0x4000u;
+        recreated.fmaskAddress = 0u;
+        recreated.fmaskPipeBankXor = 0u;
+        Draw(*device, TargetState(recreated));
+        std::array<std::byte, 4> formerFmask{};
+        formerFmask.fill(std::byte{0x22});
+        AgcDriver::GuestMemory::Write(fmask.Address(), formerFmask);
+        Draw(*device, TargetState(recreated));
+        auto recreatedDescriptor = TargetDescriptor(colorMemory, 3u);
+        recreatedDescriptor[0] |= recreated.pipeBankXor >> 8u;
+        const auto recreatedSamples = LoadSamples(*device, recreatedDescriptor, 8u);
+        Require(std::find(recreatedSamples.begin(), recreatedSamples.end(), Drawn) != recreatedSamples.end(), "former FMASK metadata affected the recreated native target");
+        device->SubmitRecorded(true);
+        device->WaitIdle();
+        ClearMultisampleTargets(device->Device());
+        ClearCachedTextures(device->Device());
+        std::printf("native FMASK: XOR=0x%x, eight distinct samples, both registration modes, cached reuse, association/extent/write refusals and unchanged guest metadata passed\n", pipeXor);
+    }
+}
+
 }
 
 int main(int argc, char** argv) {
     try {
         auto device = OpenVulkanTestDevice();
         if (!device) return VulkanTestSkipped;
+        if (argc == 2 && std::string_view(argv[1]) == "--native-fmask") {
+            {
+                const auto context = AgcDriver::VulkanDeviceTestAccess::ContextOf(*device);
+                if (!context.storageImageMultisample || (context.limits.framebufferColorSampleCounts & VK_SAMPLE_COUNT_8_BIT) == 0) {
+                    std::puts("native FMASK skipped, the device does not render or store 8-sample color");
+                    return VulkanTestSkipped;
+                }
+            }
+            NativeFmask(device);
+            return 0;
+        }
         if (argc == 2 && std::string_view(argv[1]) == "--native-vertex-input") return NativeVertexInput(device);
         Block block(4u * BlockBytes);
         Block other(BlockBytes);
@@ -658,6 +922,36 @@ int main(int argc, char** argv) {
         std::memcpy(mixedStore.data + colorBytes - sizeof(odd), &odd, sizeof(odd));
         RequireStoreRefused(*device, TargetDescriptor(mixedStore, SampleShift), "writing the 16x16 multisampled texture", "storing to a multisampled texture no draw rendered to whose color memory is not uniform");
         std::puts("stores to one sample of each pixel of a drawn 4x target and to samples of zeroed color memory no draw rendered to reach exactly those samples, and a store to non-uniform color memory no draw rendered to is refused");
+        for (const auto mode : {TileZ64KBX, TileD64KBX}) {
+            Block swizzled(BlockBytes);
+            StoreWords(swizzled, colorBytes, FillOnes);
+            CheckUniform(LoadSamples(*device, swizzled, Format16161616Float, mode), Ones, "from the uniform memory of a " + std::to_string(mode) + " swizzle surface no draw rendered to");
+        }
+        const auto htileBytes = AgcDriver::Graphics::HtileMetadataBytes({Side, Side});
+        Require(htileBytes <= BlockBytes, "the HTILE of the 4x texture does not fit one block");
+        Block cleared(2u * BlockBytes);
+        StoreWords(cleared, colorBytes, FillOnes);
+        const auto clearedHtile = cleared.Address() + BlockBytes;
+        CheckUniform(LoadSamples(*device, CompressedDescriptor(cleared, TileZ64KBX, clearedHtile)), {}, "from a Z swizzle surface whose HTILE is all cleared to 0.0 over memory of other values");
+        AgcDriver::Graphics::NoteColorMetadataFill(clearedHtile, sizeof(std::uint32_t), 0u);
+        RequireRefused(*device, CompressedDescriptor(cleared, TileZ64KBX, clearedHtile), "over the HTILE", "loading a Z swizzle texture after a fill over part of its HTILE");
+        AgcDriver::Graphics::NoteColorMetadataFill(clearedHtile, static_cast<std::size_t>(htileBytes), 0u);
+        CheckUniform(LoadSamples(*device, CompressedDescriptor(cleared, TileZ64KBX, clearedHtile)), {}, "from a Z swizzle surface after a fill of 0 over its whole HTILE");
+        Block expanded(2u * BlockBytes);
+        StoreWords(expanded, colorBytes, FillOnes);
+        std::fill_n(reinterpret_cast<std::uint32_t*>(expanded.data + BlockBytes), htileBytes / sizeof(std::uint32_t), 0xffffffffu);
+        CheckUniform(LoadSamples(*device, CompressedDescriptor(expanded, TileZ64KBX, expanded.Address() + BlockBytes)), Ones, "from the uniform memory of a Z swizzle surface whose HTILE is all expanded");
+        Block partial(2u * BlockBytes);
+        StoreWords(partial, colorBytes, FillOnes);
+        const std::uint32_t expandedTile = 0xfu;
+        std::memcpy(partial.data + BlockBytes + htileBytes - sizeof(expandedTile), &expandedTile, sizeof(expandedTile));
+        RequireRefused(*device, CompressedDescriptor(partial, TileZ64KBX, partial.Address() + BlockBytes), "neither all cleared to 0.0 nor all expanded", "loading a Z swizzle texture whose HTILE mixes cleared and expanded tiles");
+        Block display(2u * BlockBytes);
+        StoreWords(display, colorBytes, FillOnes);
+        RequireRefused(*device, CompressedDescriptor(display, TileD64KBX, display.Address() + BlockBytes), "compression metadata", "loading a D swizzle multisampled texture no draw rendered to with compression metadata");
+        Block standard(BlockBytes);
+        StoreWords(standard, colorBytes, FillOnes);
+        RequireRefused(*device, TargetDescriptor(standard, SampleShift, Format16161616Float, TileS64KBX), "has no modeled multisampled color footprint", "loading an S swizzle multisampled texture no draw rendered to");
         std::puts("every sample of a 4x color target loaded through its multisampled texture descriptor matches the triangle drawn into it, then the fill of its color memory; a surface no draw rendered to loads the value its color memory repeats and keeps it under a later draw");
         Block swapped(4u * BlockBytes);
         Draw(*device, TargetState(DecodeSwappedTarget(swapped)), 0, 2u, Unorm8PixelCode);

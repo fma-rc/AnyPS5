@@ -96,6 +96,7 @@ public:
             function<PFN_vkGetPhysicalDeviceMemoryProperties>("vkGetPhysicalDeviceMemoryProperties")(context.physical, &context.memory);
             context.Function<PFN_vkGetDeviceQueue>("vkGetDeviceQueue")(context.device, family, 0, &context.queue);
             VkCommandPoolCreateInfo pool{VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};
+            pool.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
             pool.queueFamilyIndex = family;
             Check(context.Function<PFN_vkCreateCommandPool>("vkCreateCommandPool")(context.device, &pool, nullptr, &context.pool), "vkCreateCommandPool");
         } catch (...) {
@@ -324,7 +325,7 @@ void Run(const Context& context, const CopyPipeline& pipeline, bool writable, co
     std::memset(readback.Bytes().data(), 0xcc, BufferBytes);
     VkBuffer primed = VK_NULL_HANDLE;
     {
-        Buffer earlier(context, BufferBytes, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+        Buffer earlier(context, BufferBytes, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT);
         primed = earlier.Handle();
         std::memset(earlier.Bytes().data(), 0xa5, BufferBytes);
     }

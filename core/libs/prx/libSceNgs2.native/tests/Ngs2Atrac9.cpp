@@ -195,6 +195,99 @@ static void TestCalcBlock() {
     Require(sceNgs2CalcWaveformBlock(&silent, 0, 1, &block) == SCE_NGS2_ERROR_INVALID_WAVEFORM_FORMAT);
 }
 
+static void TestFrameInfo() {
+    const Ngs2WaveformFormat supported[] = {
+        {SCE_NGS2_WAVEFORM_TYPE_ATRAC9, 1, 48000, Config, 0, 0},
+        {SCE_NGS2_WAVEFORM_TYPE_ATRAC9, 1, 48000, Config, 7, 9},
+    };
+    const Ngs2WaveformFormat rejected[] = {
+        {SCE_NGS2_WAVEFORM_TYPE_ATRAC9, 2, 48000, Config, 0, 0},
+        {SCE_NGS2_WAVEFORM_TYPE_ATRAC9, 0, 48000, Config, 0, 0},
+        {SCE_NGS2_WAVEFORM_TYPE_ATRAC9, 9, 48000, Config, 0, 0},
+        {SCE_NGS2_WAVEFORM_TYPE_ATRAC9, 1, 44100, Config, 0, 0},
+        {SCE_NGS2_WAVEFORM_TYPE_ATRAC9, 1, 0, Config, 0, 0},
+        {SCE_NGS2_WAVEFORM_TYPE_ATRAC9, 1, 192001, Config, 0, 0},
+        {SCE_NGS2_WAVEFORM_TYPE_ATRAC9, 1, 48000, 0, 0, 0},
+    };
+    for (const auto& format : supported) {
+        Ngs2WaveformBlock block{};
+        Require(sceNgs2CalcWaveformBlock(&format, 0, SuperframeSamples, &block) == SCE_NGS2_OK && block.data_size == SuperframeBytes);
+        std::uint32_t values[4] = {0xa1, 0xa2, 0xa3, 0xa4};
+        Require(sceNgs2GetWaveformFrameInfo(&format, &values[0], &values[1], &values[2], &values[3]) == SCE_NGS2_OK);
+        Require(values[0] == SuperframeBytes && values[1] == SuperframeSamples && values[2] == 4 && values[3] == SuperframeSamples / 4);
+    }
+    for (const auto& format : rejected) {
+        Ngs2WaveformBlock block{};
+        const int calc = sceNgs2CalcWaveformBlock(&format, 0, SuperframeSamples, &block);
+        Require(calc == SCE_NGS2_ERROR_INVALID_WAVEFORM_FORMAT);
+        std::uint32_t values[4] = {0xa1, 0xa2, 0xa3, 0xa4};
+        Require(sceNgs2GetWaveformFrameInfo(&format, &values[0], &values[1], &values[2], &values[3]) == calc);
+        Require(values[0] == 0xa1 && values[1] == 0xa2 && values[2] == 0xa3 && values[3] == 0xa4);
+    }
+    std::uint32_t values[4] = {0xa1, 0xa2, 0xa3, 0xa4};
+    Require(sceNgs2GetWaveformFrameInfo(nullptr, &values[0], &values[1], &values[2], &values[3]) == SCE_NGS2_ERROR_INVALID_WAVEFORM_FORMAT);
+    Require(sceNgs2GetWaveformFrameInfo(&supported[0], nullptr, &values[1], &values[2], &values[3]) == SCE_NGS2_ERROR_INVALID_OUT_ADDRESS);
+    Require(sceNgs2GetWaveformFrameInfo(&supported[0], &values[0], nullptr, &values[2], &values[3]) == SCE_NGS2_ERROR_INVALID_OUT_ADDRESS);
+    Require(sceNgs2GetWaveformFrameInfo(&supported[0], &values[0], &values[1], nullptr, &values[3]) == SCE_NGS2_ERROR_INVALID_OUT_ADDRESS);
+    Require(sceNgs2GetWaveformFrameInfo(&supported[0], &values[0], &values[1], &values[2], nullptr) == SCE_NGS2_ERROR_INVALID_OUT_ADDRESS);
+    Require(sceNgs2GetWaveformFrameInfo(nullptr, nullptr, nullptr, nullptr, nullptr) == SCE_NGS2_ERROR_INVALID_OUT_ADDRESS);
+    Require(values[0] == 0xa1 && values[1] == 0xa2 && values[2] == 0xa3 && values[3] == 0xa4);
+}
+
+static void RequirePcmBlock(std::uint32_t type, std::uint32_t channels, std::uint32_t pos, std::uint32_t count, std::uint64_t offset, std::uint64_t size) {
+    const Ngs2WaveformFormat format{type, channels, 48000, 0, 0, 0};
+    Ngs2WaveformBlock block;
+    std::memset(&block, 0xab, sizeof(block));
+    Require(sceNgs2CalcWaveformBlock(&format, pos, count, &block) == SCE_NGS2_OK);
+    Require(block.data_offset == offset && block.data_size == size && block.num_samples == count);
+    Require(block.num_repeats == 0 && block.num_skip_samples == 0 && block.reserved == 0 && block.user_data == 0);
+}
+
+static void TestCalcPcmBlock() {
+    const std::uint32_t bytesPerSample[] = {1, 1, 2, 2, 3, 3, 4, 4, 4, 4, 8, 8};
+    for (std::uint32_t type = 0x10; type <= 0x1b; ++type) {
+        const auto stride = 100u * bytesPerSample[type - 0x10];
+        RequirePcmBlock(type, 100, 3, 5, 3u * stride, 5u * stride);
+    }
+    RequirePcmBlock(SCE_NGS2_WAVEFORM_TYPE_PCM_I16L, 2, 100, 50, 400, 200);
+    RequirePcmBlock(SCE_NGS2_WAVEFORM_TYPE_PCM_F32L, 1, 10, 0, 40, 0);
+    RequirePcmBlock(SCE_NGS2_WAVEFORM_TYPE_PCM_I16L, 0, 7, 9, 0, 0);
+    RequirePcmBlock(0x1a, 8, 0x4000000, 1, 0, 64);
+    RequirePcmBlock(0x1a, 2, 0xffffffffu, 2, 0xfffffff0u, 32);
+    const Ngs2WaveformFormat noRate{SCE_NGS2_WAVEFORM_TYPE_PCM_I16L, 2, 0, 0, 0, 0};
+    Ngs2WaveformBlock block{};
+    Require(sceNgs2CalcWaveformBlock(&noRate, 1, 1, &block) == SCE_NGS2_OK && block.data_offset == 4 && block.data_size == 4);
+    for (std::uint32_t type : {0x0u, 0xfu, 0x1du, 0x20u, 0x30u, 0x43u}) {
+        const Ngs2WaveformFormat unknown{type, 2, 48000, 0, 0, 0};
+        std::memset(&block, 0xab, sizeof(block));
+        Require(sceNgs2CalcWaveformBlock(&unknown, 0, 1, &block) == SCE_NGS2_ERROR_UNKNOWN_WAVEFORM_FORMAT);
+        const auto* bytes = reinterpret_cast<const std::uint8_t*>(&block);
+        Require(std::all_of(bytes, bytes + sizeof(block), [](std::uint8_t byte) { return byte == 0; }));
+    }
+    std::memset(&block, 0xab, sizeof(block));
+    Require(sceNgs2CalcWaveformBlock(nullptr, 0, 1, &block) == SCE_NGS2_ERROR_INVALID_WAVEFORM_FORMAT && block.data_size == 0 && block.num_samples == 0);
+}
+
+static void RequireVagBlock(std::uint32_t channels, std::uint32_t pos, std::uint32_t count, std::uint64_t offset, std::uint64_t size, std::uint32_t samples) {
+    const Ngs2WaveformFormat format{0x1c, channels, 48000, 0, 0, 0};
+    Ngs2WaveformBlock block;
+    std::memset(&block, 0xab, sizeof(block));
+    Require(sceNgs2CalcWaveformBlock(&format, pos, count, &block) == SCE_NGS2_OK);
+    Require(block.data_offset == offset && block.data_size == size && block.num_samples == samples);
+    Require(block.num_repeats == 0 && block.num_skip_samples == 0 && block.reserved == 0 && block.user_data == 0);
+}
+
+static void TestCalcVagBlock() {
+    RequireVagBlock(1, 0, 28, 0, 16, 28);
+    RequireVagBlock(1, 27, 2, 0, 32, 56);
+    RequireVagBlock(1, 28, 28, 16, 16, 28);
+    RequireVagBlock(2, 30, 1, 32, 32, 28);
+    RequireVagBlock(6, 56, 57, 192, 288, 84);
+    RequireVagBlock(1, 0, 0, 0, 0, 0);
+    RequireVagBlock(1, 5, 0, 0, 16, 28);
+    RequireVagBlock(0, 100, 50, 0, 0, 84);
+}
+
 static void Set32(std::vector<std::uint8_t>& bytes, std::size_t offset, std::uint32_t value) {
     for (int i = 0; i < 4; ++i) bytes[offset + i] = static_cast<std::uint8_t>(value >> (i * 8));
 }
@@ -504,6 +597,9 @@ int main() {
     TestParseLoops();
     TestMalformedLoops();
     TestCalcBlock();
+    TestFrameInfo();
+    TestCalcPcmBlock();
+    TestCalcVagBlock();
     TestCorruptSuperframeAtPageEnd();
     TestStreamPartitions();
     TestRefill(reference);
