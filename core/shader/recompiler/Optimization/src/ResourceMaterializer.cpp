@@ -1685,7 +1685,7 @@ std::uint32_t GuestCensusUnsupported(const std::array<std::uint32_t, 8>& image, 
     else if (maxMip != lastLevel) noteDetail(0x600u | (maxMip << 4u) | lastLevel);
     else if (std::max(textureMinLod, samplerMinLod) > (lastLevel << 8u)) { noteDetail(0x520u); noteDetail(0x900u | std::min(textureMinLod >> 4u, 0xffu)); }
     if ((type != 9u && (type != 13u || (image[4] >> 16u) != 0u)) || baseLevel != 0u || maxMip != lastLevel || std::max(textureMinLod, samplerMinLod) > (lastLevel << 8u)) return 5u;
-    if (rgba8 ? (swizzle != 0u && swizzle != 1u && swizzle != 9u && swizzle != 24u && swizzle != 27u) || lastLevel != 0u : single ? swizzle != 0u && swizzle != 1u : plain ? (swizzle != 0u && swizzle != 1u && swizzle != 24u && swizzle != 27u) || lastLevel != 0u : swizzle != 0u && swizzle != 1u && swizzle != 5u && swizzle != 9u) return 6u;
+    if (rgba8 ? (swizzle != 0u && swizzle != 1u && swizzle != 9u && swizzle != 24u && swizzle != 27u) || lastLevel != 0u : single ? (swizzle != 0u && swizzle != 1u && swizzle != 24u && swizzle != 27u) || ((swizzle == 24u || swizzle == 27u) && lastLevel != 0u) : plain ? (swizzle != 0u && swizzle != 1u && swizzle != 24u && swizzle != 27u) || lastLevel != 0u : swizzle != 0u && swizzle != 1u && swizzle != 5u && swizzle != 9u) return 6u;
     for (std::uint32_t channel = 0; channel < 4u; ++channel) {
         const std::uint32_t selector = (image[3] >> (channel * 3u)) & 7u;
         if (selector == 2u || selector == 3u) return 6u;
