@@ -330,8 +330,10 @@ Level levelLayout(uint width, uint height, uint levelCount, uint swizzle, uint f
         if (swizzle == 0u) {
             for (uint j = level + 1u; j < levelCount; ++j) result.offset += alignUp(max(width >> j, 1u), 256u / bytesPerElement) * max(height >> j, 1u) * bytesPerElement;
         } else if (swizzle == 1u) {
-            uint blockWidth = bytesPerElement == 4u ? 8u : 16u;
-            for (uint j = level + 1u; j < levelCount; ++j) result.offset += alignUp(max(width >> j, 1u), blockWidth) * alignUp(max(height >> j, 1u), 8u) * bytesPerElement;
+            uint elementLog = findLSB(bytesPerElement);
+            uint blockWidth = 16u >> (elementLog >> 1);
+            uint blockHeight = 16u >> ((elementLog + 1u) >> 1);
+            for (uint j = level + 1u; j < levelCount; ++j) result.offset += alignUp(max(width >> j, 1u), blockWidth) * alignUp(max(height >> j, 1u), blockHeight) * bytesPerElement;
         } else {
             faulted = true;
         }
@@ -1200,7 +1202,7 @@ uvec4 sampleGuest(uvec4 tlow, uvec4 thigh, uvec4 ssharp, uvec4 row, uvec4 deriva
     supported = supported && ((ssharp.x >> 12) & ~0x70u) == 0u && (anisoThreshold == 0u || anisoThreshold == 7u) && (ssharp.z & 0xfc000u) == 0u;
     supported = supported && (lastLevel == 0u || mipFilter == 1u || mipFilter == 2u);
     if (anisoTaps) {
-        bool anisoFormat = (format == 13u && lastLevel == 0u) || (format == 36u && lastLevel == 0u) || (format == 71u && lastLevel == 0u) || format == 179u || format == 22u || format == 1u || format == 7u || format == 56u || format == 130u || format == 169u || format == 170u || format == 175u || format == 181u || format == 182u;
+        bool anisoFormat = format == 13u || format == 36u || format == 71u || format == 179u || format == 22u || (format == 1u && lastLevel == 0u) || format == 7u || format == 56u || format == 130u || format == 169u || format == 170u || format == 175u || format == 181u || format == 182u;
         supported = supported && anisoFormat && row.w == 1u && samplerMinLod == 0u && samplerMaxLod >= (lastLevel << 8);
     }
     if (!supported) {
