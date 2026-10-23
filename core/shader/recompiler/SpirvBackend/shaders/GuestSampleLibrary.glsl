@@ -1025,7 +1025,7 @@ uvec4 sampleGuest(uvec4 tlow, uvec4 thigh, uvec4 ssharp, uvec4 row, uvec4 deriva
     supported = supported && baseLevel == 0u && maxMip == lastLevel && max(textureMinLod, samplerMinLod) <= (lastLevel << 8);
     uint anisoThreshold = (ssharp.x >> 16) & 7u;
     supported = supported && ((ssharp.x >> 12) & ~0x70u) == 0u && (anisoThreshold == 0u || anisoThreshold == 7u) && (ssharp.z & 0xfc000u) == 0u;
-    supported = supported && (lastLevel == 0u || (clampX == 2u && clampY == 2u && (mipFilter == 1u || mipFilter == 2u)));
+    supported = supported && (lastLevel == 0u || mipFilter == 1u || mipFilter == 2u);
     if (anisoTaps) {
         bool anisoFormat = format == 169u || format == 170u || format == 175u || format == 181u || format == 182u;
         supported = supported && anisoFormat && row.w == 1u && samplerMinLod == 0u && samplerMaxLod >= (lastLevel << 8);
