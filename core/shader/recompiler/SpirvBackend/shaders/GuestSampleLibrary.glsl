@@ -97,6 +97,18 @@ int wrapIndex(int index, int extent, uint mode) {
     return clamp(index, 0, extent - 1);
 }
 
+const uint XorDepth4[16] = uint[](0u, 0u, 0x1u, 0x1000u, 0x2u, 0x2000u, 0x4u, 0x4000u, 0x08008008u, 0x04010010u, 0x02020040u, 0x01040020u, 0x8000u, 0x10u, 0x40000u, 0x40u);
+const uint XorRenderTarget4[16] = uint[](0u, 0u, 0x1u, 0x2u, 0x1000u, 0x2000u, 0x4000u, 0x4u, 0x08008008u, 0x04010010u, 0x02020040u, 0x01040020u, 0x8000u, 0x10u, 0x40000u, 0x40u);
+
+uint guestPipeBankXor = 0u;
+
+uint xorBlockOffset4(uint ex, uint ey, uint swizzle) {
+    uint coordinate = (ex & 0xfffu) | ((ey & 0xfffu) << 12);
+    uint offset = 0u;
+    for (uint bit = 0u; bit < 16u; ++bit) offset |= (uint(bitCount(coordinate & (swizzle == 24u ? XorDepth4[bit] : XorRenderTarget4[bit]))) & 1u) << bit;
+    return offset ^ guestPipeBankXor;
+}
+
 uint elementByte(uint ex, uint ey, uint widthElements, uint bytesPerElement, uint swizzle) {
     if (swizzle == 0u) {
         uint align = 256u / bytesPerElement;
@@ -108,6 +120,10 @@ uint elementByte(uint ex, uint ey, uint widthElements, uint bytesPerElement, uin
     if (bytesPerElement == 4u && swizzle == 9u) {
         uint blocksPerRow = (widthElements + 127u) >> 7;
         return (((ey >> 7) * blocksPerRow + (ex >> 7)) << 16) + standardOffset4(ex & 127u, ey & 127u);
+    }
+    if (bytesPerElement == 4u && (swizzle == 24u || swizzle == 27u)) {
+        uint blocksPerRow = (widthElements + 127u) >> 7;
+        return (((ey >> 7) * blocksPerRow + (ex >> 7)) << 16) + xorBlockOffset4(ex, ey, swizzle);
     }
     if (bytesPerElement == 8u) {
         if (swizzle == 1u) return (((ey >> 2) * ((widthElements + 7u) >> 3) + (ex >> 3)) << 8) + standardOffset8(ex & 7u, ey & 3u);
@@ -1016,6 +1032,9 @@ uvec4 sampleGuest(uvec4 tlow, uvec4 thigh, uvec4 ssharp, uvec4 row, uvec4 deriva
     uint baseLevel = (t3 >> 12) & 0xfu;
     uint lastLevel = (t3 >> 16) & 0xfu;
     uint swizzle = (t3 >> 20) & 0x1fu;
+    guestPipeBankXor = swizzle >= 24u && swizzle <= 27u ? uint(base) & 0xffffu : 0u;
+    base -= uint64_t(guestPipeBankXor);
+    guestOrigin = base;
     uint type = (t3 >> 28) & 0xfu;
     uint maxMip = (thigh.y >> 4) & 0xfu;
     uint textureMinLod = (t1 >> 8) & 0xfffu;
@@ -1261,6 +1280,9 @@ uvec4 loadGuest(uvec4 tlow, uvec4 thigh, uvec4 coord, uvec4 memory, out uint fau
     uint baseLevel = (t3 >> 12) & 0xfu;
     uint lastLevel = (t3 >> 16) & 0xfu;
     uint swizzle = (t3 >> 20) & 0x1fu;
+    guestPipeBankXor = swizzle >= 24u && swizzle <= 27u ? uint(base) & 0xffffu : 0u;
+    base -= uint64_t(guestPipeBankXor);
+    guestOrigin = base;
     uint type = (t3 >> 28) & 0xfu;
     uint maxMip = (thigh.y >> 4) & 0xfu;
     bool knownFormat = format == 7u || format == 22u || format == 56u || format == 169u || format == 170u || format == 175u || format == 177u || format == 179u || format == 181u || format == 182u;
