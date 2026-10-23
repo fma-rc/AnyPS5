@@ -57,7 +57,7 @@ using ShaderRecompiler::ShaderStage;
 constexpr std::uint32_t Lanes = 64;
 constexpr std::uint32_t MaxGroups = 64;
 constexpr std::uint32_t Stride = 48;
-constexpr std::size_t BlockBytes = 0x5f0000;
+constexpr std::size_t BlockBytes = 0x770000;
 constexpr std::size_t Rgba8Offset = 0x00000;
 constexpr std::size_t Bc7Offset = 0x10000;
 constexpr std::size_t Bc7MipOffset = 0x20000;
@@ -148,10 +148,13 @@ constexpr std::uint32_t R32fMipsAnisoRecord = 96;
 constexpr std::size_t PlainMipsAnisoOffset = 0x550000;
 constexpr std::size_t PlainMipsAnisoSlotBytes = 0x20000;
 constexpr std::uint32_t PlainMipsAnisoRecord = 97;
-constexpr std::uint32_t Records = 102;
+constexpr std::size_t MipsFilterOffset = 0x5f0000;
+constexpr std::size_t MipsFilterSlotBytes = 0x20000;
+constexpr std::uint32_t MipsFilterRecord = 102;
+constexpr std::uint32_t Records = 114;
 constexpr std::size_t SrtOffset = 0x30000;
 constexpr std::size_t TableOffset = 0x30100;
-constexpr std::size_t KeysOffset = 0x31500;
+constexpr std::size_t KeysOffset = 0x31700;
 constexpr std::size_t RowsOffset = 0x40000;
 constexpr std::size_t OutputOffset = 0x50000;
 constexpr std::size_t RowsBytes = OutputOffset - RowsOffset;
@@ -675,6 +678,18 @@ void RunTests(AgcDriver::VulkanDevice& device) {
     std::memcpy(block.At<std::uint8_t>(PlainMipsAnisoOffset + 2u * PlainMipsAnisoSlotBytes), GuestSampledTableAnisoMipsData::R16fMipsMemory.data(), sizeof(GuestSampledTableAnisoMipsData::R16fMipsMemory));
     std::memcpy(block.At<std::uint8_t>(PlainMipsAnisoOffset + 3u * PlainMipsAnisoSlotBytes), GuestSampledTableAnisoMipsData::R16fWideMipsMemory.data(), sizeof(GuestSampledTableAnisoMipsData::R16fWideMipsMemory));
     std::memcpy(block.At<std::uint8_t>(PlainMipsAnisoOffset + 4u * PlainMipsAnisoSlotBytes), GuestSampledTableAnisoMipsData::R11g11b10fMipsMemory.data(), sizeof(GuestSampledTableAnisoMipsData::R11g11b10fMipsMemory));
+    std::memcpy(block.At<std::uint8_t>(MipsFilterOffset + 0u * MipsFilterSlotBytes), GuestSampledTableAnisoMipsData::Rgba16fMipsMemory.data(), sizeof(GuestSampledTableAnisoMipsData::Rgba16fMipsMemory));
+    std::memcpy(block.At<std::uint8_t>(MipsFilterOffset + 1u * MipsFilterSlotBytes), GuestSampledTableAnisoMipsData::Rgba16fMipsMemory.data(), sizeof(GuestSampledTableAnisoMipsData::Rgba16fMipsMemory));
+    std::memcpy(block.At<std::uint8_t>(MipsFilterOffset + 2u * MipsFilterSlotBytes), GuestSampledTableAnisoMipsData::Rgba16fMipsMemory.data(), sizeof(GuestSampledTableAnisoMipsData::Rgba16fMipsMemory));
+    std::memcpy(block.At<std::uint8_t>(MipsFilterOffset + 3u * MipsFilterSlotBytes), GuestSampledTableAnisoMipsData::Rgba16fMipsMemory.data(), sizeof(GuestSampledTableAnisoMipsData::Rgba16fMipsMemory));
+    std::memcpy(block.At<std::uint8_t>(MipsFilterOffset + 4u * MipsFilterSlotBytes), GuestSampledTableAnisoMipsData::R11g11b10fMipsMemory.data(), sizeof(GuestSampledTableAnisoMipsData::R11g11b10fMipsMemory));
+    std::memcpy(block.At<std::uint8_t>(MipsFilterOffset + 5u * MipsFilterSlotBytes), GuestSampledTableAnisoMipsData::R11g11b10fMipsMemory.data(), sizeof(GuestSampledTableAnisoMipsData::R11g11b10fMipsMemory));
+    std::memcpy(block.At<std::uint8_t>(MipsFilterOffset + 6u * MipsFilterSlotBytes), GuestSampledTableAnisoMipsData::R16MipsMemory.data(), sizeof(GuestSampledTableAnisoMipsData::R16MipsMemory));
+    std::memcpy(block.At<std::uint8_t>(MipsFilterOffset + 7u * MipsFilterSlotBytes), GuestSampledTableAnisoMipsData::R16MipsMemory.data(), sizeof(GuestSampledTableAnisoMipsData::R16MipsMemory));
+    std::memcpy(block.At<std::uint8_t>(MipsFilterOffset + 8u * MipsFilterSlotBytes), GuestSampledTableAnisoMipsData::R16MipsMemory.data(), sizeof(GuestSampledTableAnisoMipsData::R16MipsMemory));
+    std::memcpy(block.At<std::uint8_t>(MipsFilterOffset + 9u * MipsFilterSlotBytes), GuestSampledTableAnisoMipsData::R16MipsMemory.data(), sizeof(GuestSampledTableAnisoMipsData::R16MipsMemory));
+    std::memcpy(block.At<std::uint8_t>(MipsFilterOffset + 10u * MipsFilterSlotBytes), GuestSampledTableAnisoMipsData::R16MipsMemory.data(), sizeof(GuestSampledTableAnisoMipsData::R16MipsMemory));
+    std::memcpy(block.At<std::uint8_t>(MipsFilterOffset + 11u * MipsFilterSlotBytes), GuestSampledTableAnisoMipsData::R16MipsMemory.data(), sizeof(GuestSampledTableAnisoMipsData::R16MipsMemory));
     std::memcpy(block.At<std::uint8_t>(R16Offset), GuestSampledTableDerivativeData::R16Memory.data(), sizeof(GuestSampledTableDerivativeData::R16Memory));
     std::memcpy(block.At<std::uint8_t>(R32fOffset), GuestSampledTableDerivativeData::R32fMemory.data(), sizeof(GuestSampledTableDerivativeData::R32fMemory));
     std::memcpy(block.At<std::uint8_t>(R32fLoadOffset), GuestSampledTableDerivativeData::R32fMemory.data(), sizeof(GuestSampledTableDerivativeData::R32fMemory));
@@ -820,6 +835,18 @@ void RunTests(AgcDriver::VulkanDevice& device) {
         TextureWords(block.At<std::uint8_t>(PlainMipsAnisoOffset + 2u * PlainMipsAnisoSlotBytes), 13u, 128, 64, swizzle256BS, 5),
         TextureWords(block.At<std::uint8_t>(PlainMipsAnisoOffset + 3u * PlainMipsAnisoSlotBytes), 13u, 128, 64, swizzle256BS, 5),
         TextureWords(block.At<std::uint8_t>(PlainMipsAnisoOffset + 4u * PlainMipsAnisoSlotBytes), 36u, 128, 64, swizzle256BS, 5),
+        TextureWords(block.At<std::uint8_t>(MipsFilterOffset + 0u * MipsFilterSlotBytes), 71u, 128, 64, swizzle256BS, 5),
+        TextureWords(block.At<std::uint8_t>(MipsFilterOffset + 1u * MipsFilterSlotBytes), 71u, 128, 64, swizzle256BS, 5),
+        TextureWords(block.At<std::uint8_t>(MipsFilterOffset + 2u * MipsFilterSlotBytes), 13u, 128, 64, swizzle256BS, 5),
+        TextureWords(block.At<std::uint8_t>(MipsFilterOffset + 3u * MipsFilterSlotBytes), 13u, 128, 64, swizzle256BS, 5),
+        TextureWords(block.At<std::uint8_t>(MipsFilterOffset + 4u * MipsFilterSlotBytes), 36u, 128, 64, swizzle256BS, 5),
+        TextureWords(block.At<std::uint8_t>(MipsFilterOffset + 5u * MipsFilterSlotBytes), 36u, 128, 64, swizzle256BS, 5),
+        TextureWords(block.At<std::uint8_t>(MipsFilterOffset + 6u * MipsFilterSlotBytes), formatRgba8, 128, 64, swizzle256BS, 5),
+        TextureWords(block.At<std::uint8_t>(MipsFilterOffset + 7u * MipsFilterSlotBytes), formatRgba8, 128, 64, swizzle256BS, 5),
+        TextureWords(block.At<std::uint8_t>(MipsFilterOffset + 8u * MipsFilterSlotBytes), formatRgba8, 128, 64, swizzle256BS, 5),
+        TextureWords(block.At<std::uint8_t>(MipsFilterOffset + 9u * MipsFilterSlotBytes), 1u, 128, 64, swizzle256BS, 5),
+        TextureWords(block.At<std::uint8_t>(MipsFilterOffset + 10u * MipsFilterSlotBytes), 1u, 128, 64, swizzle256BS, 5),
+        TextureWords(block.At<std::uint8_t>(MipsFilterOffset + 11u * MipsFilterSlotBytes), 1u, 128, 64, swizzle256BS, 5),
     };
     auto* table = block.At<std::uint32_t>(TableOffset);
     for (std::size_t record = 0; record < records.size(); ++record) std::copy(records[record].begin(), records[record].end(), table + record * (Stride / 4u) + 4u);
@@ -915,6 +942,18 @@ void RunTests(AgcDriver::VulkanDevice& device) {
         RunCase(device, block, {"r16f-aniso-mips/point", PlainMipsAnisoRecord + 2u, AnisoSampler(3, 3, 1), Formats::AnisoFormatsRows, GuestSampledTableAnisoMipsData::R16fAnisoMipsPoint, 8});
         RunCase(device, block, {"r16f-wide-aniso-mips/trilinear", PlainMipsAnisoRecord + 3u, AnisoSampler(3, 3, 2), Formats::AnisoFormatsRows, GuestSampledTableAnisoMipsData::R16fWideAnisoMips, 8});
         RunCase(device, block, {"r11g11b10f-aniso-mips/trilinear", PlainMipsAnisoRecord + 4u, AnisoSampler(3, 3, 2), Formats::AnisoFormatsRows, GuestSampledTableAnisoMipsData::R11g11b10fAnisoMips, 8});
+        RunCase(device, block, {"rgba16f-mips/bilinear-mip-point", MipsFilterRecord + 0u, Sampler(1, 1, 1), Formats::AnisoFormatsRows, GuestSampledTableAnisoMipsData::Rgba16fBilinearMipPoint, 8});
+        RunCase(device, block, {"rgba16f-mips/trilinear", MipsFilterRecord + 1u, Sampler(1, 1, 2), Formats::AnisoFormatsRows, GuestSampledTableAnisoMipsData::Rgba16fTrilinear, 8});
+        RunCase(device, block, {"r16f-mips/bilinear-mip-point", MipsFilterRecord + 2u, Sampler(1, 1, 1), Formats::AnisoFormatsRows, GuestSampledTableAnisoMipsData::R16fBilinearMipPoint, 8});
+        RunCase(device, block, {"r16f-mips/trilinear", MipsFilterRecord + 3u, Sampler(1, 1, 2), Formats::AnisoFormatsRows, GuestSampledTableAnisoMipsData::R16fTrilinear, 8});
+        RunCase(device, block, {"r11g11b10f-mips/bilinear-mip-point", MipsFilterRecord + 4u, Sampler(1, 1, 1), Formats::AnisoFormatsRows, GuestSampledTableAnisoMipsData::R11g11b10fBilinearMipPoint, 8});
+        RunCase(device, block, {"r11g11b10f-mips/trilinear", MipsFilterRecord + 5u, Sampler(1, 1, 2), Formats::AnisoFormatsRows, GuestSampledTableAnisoMipsData::R11g11b10fTrilinear, 8});
+        RunCase(device, block, {"rgba8-mips/bilinear-mip-point", MipsFilterRecord + 6u, Sampler(1, 1, 1), Formats::AnisoFormatsRows, GuestSampledTableAnisoMipsData::Rgba8BilinearMipPoint, 8});
+        RunCase(device, block, {"rgba8-mips/trilinear", MipsFilterRecord + 7u, Sampler(1, 1, 2), Formats::AnisoFormatsRows, GuestSampledTableAnisoMipsData::Rgba8Trilinear, 8});
+        RunCase(device, block, {"rgba8-aniso-mips/trilinear", MipsFilterRecord + 8u, AnisoSampler(3, 3, 2), Formats::AnisoFormatsRows, GuestSampledTableAnisoMipsData::Rgba8AnisoMips, 8});
+        RunCase(device, block, {"r8-mips/bilinear-mip-point", MipsFilterRecord + 9u, Sampler(1, 1, 1), Formats::AnisoFormatsRows, GuestSampledTableAnisoMipsData::R8BilinearMipPoint, 8});
+        RunCase(device, block, {"r8-mips/trilinear", MipsFilterRecord + 10u, Sampler(1, 1, 2), Formats::AnisoFormatsRows, GuestSampledTableAnisoMipsData::R8Trilinear, 8});
+        RunCase(device, block, {"r8-aniso-mips/trilinear", MipsFilterRecord + 11u, AnisoSampler(3, 3, 2), Formats::AnisoFormatsRows, GuestSampledTableAnisoMipsData::R8AnisoMips, 8});
     }
     {
         namespace AnisoGap = GuestSampledTableAnisoGapData;
