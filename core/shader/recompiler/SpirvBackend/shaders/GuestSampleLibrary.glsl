@@ -1156,7 +1156,7 @@ uvec4 sampleGuest(uvec4 tlow, uvec4 thigh, uvec4 ssharp, uvec4 row, uvec4 deriva
     supported = supported && ((ssharp.x >> 12) & ~0x70u) == 0u && (anisoThreshold == 0u || anisoThreshold == 7u) && (ssharp.z & 0xfc000u) == 0u;
     supported = supported && (lastLevel == 0u || mipFilter == 1u || mipFilter == 2u);
     if (anisoTaps) {
-        bool anisoFormat = (format == 13u && lastLevel == 0u) || (format == 36u && lastLevel == 0u) || (format == 71u && lastLevel == 0u) || (format == 179u && lastLevel == 0u) || (format == 22u && lastLevel == 0u) || format == 1u || (format == 7u && lastLevel == 0u) || format == 56u || format == 130u || format == 169u || format == 170u || format == 175u || format == 181u || format == 182u;
+        bool anisoFormat = (format == 13u && lastLevel == 0u) || (format == 36u && lastLevel == 0u) || (format == 71u && lastLevel == 0u) || format == 179u || (format == 22u && lastLevel == 0u) || format == 1u || (format == 7u && lastLevel == 0u) || format == 56u || format == 130u || format == 169u || format == 170u || format == 175u || format == 181u || format == 182u;
         supported = supported && anisoFormat && row.w == 1u && samplerMinLod == 0u && samplerMaxLod >= (lastLevel << 8);
     }
     if (!supported) {

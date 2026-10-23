@@ -192,7 +192,7 @@ constexpr bool GuestSampleSupported(const std::array<std::uint32_t, 8>& image, c
     if ((sampler[0] & 0xe00u) != (anisoRatio << 9u) || ((sampler[0] >> 12u) & ~0x70u) != 0u || (anisoThreshold != 0u && anisoThreshold != 7u) || (sampler[2] & 0xfc000u) != 0u) return false;
     if (anisoTaps) {
         const std::uint32_t samplerMaxLod = (sampler[1] >> 12u) & 0xfffu;
-        if ((format != 1u && (format != 7u || lastLevel != 0u) && (format != 13u || lastLevel != 0u) && (format != 36u || lastLevel != 0u) && (format != 71u || lastLevel != 0u) && (format != 179u || lastLevel != 0u) && (format != 22u || lastLevel != 0u) && format != 56u && format != 130u && format != 169u && format != 170u && format != 175u && format != 181u && format != 182u) || samplerMinLod != 0u || samplerMaxLod < (lastLevel << 8u)) return false;
+        if ((format != 1u && (format != 7u || lastLevel != 0u) && (format != 13u || lastLevel != 0u) && (format != 36u || lastLevel != 0u) && (format != 71u || lastLevel != 0u) && format != 179u && (format != 22u || lastLevel != 0u) && format != 56u && format != 130u && format != 169u && format != 170u && format != 175u && format != 181u && format != 182u) || samplerMinLod != 0u || samplerMaxLod < (lastLevel << 8u)) return false;
     }
     if (lastLevel != 0u && mipFilter != 1u && mipFilter != 2u) return false;
     if (single && lastLevel != 0u && mipFilter == 2u) return false;
