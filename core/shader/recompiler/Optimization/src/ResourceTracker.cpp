@@ -2055,7 +2055,7 @@ private:
         const bool implicitQuad = (m_program.Resources().stage == IrShaderStage::Pixel || m_program.Resources().stage == IrShaderStage::Compute) && (sampleFlags & ~(RdnaImageSampleFlagBias | RdnaImageSampleFlagAdjust)) == 0u;
         const bool guestRead = op == IrOpcode::ImageRead && memory.imageByElements == 0u && memory.imageDimension == RdnaImageDimension::Dim2D && memory.dataBits == 32u && !memory.imagePacked;
         const bool guestGather = op == IrOpcode::ImageGatherRaw && fixedSampler && (sampleFlags & ~(RdnaImageSampleFlagLod | RdnaImageSampleFlagLevelZero)) == 0u && memory.imageDimension == RdnaImageDimension::Dim2D && memory.dataBits == 32u && !memory.imagePacked;
-        const bool guestAccess = guestRead || guestGather || (op == IrOpcode::ImageSampleRaw && fixedSampler && (lodOnly || derivative2D || implicitQuad) && memory.imageDimension == RdnaImageDimension::Dim2D && memory.dataBits == 32u && !memory.imagePacked);
+        const bool guestAccess = guestRead || guestGather || (op == IrOpcode::ImageSampleRaw && fixedSampler && (((lodOnly || derivative2D || implicitQuad) && memory.imageDimension == RdnaImageDimension::Dim2D) || (lodOnly && memory.imageDimension == RdnaImageDimension::Dim2DArray)) && memory.dataBits == 32u && !memory.imagePacked);
         if (m_guestAccess.size() <= resource) m_guestAccess.resize(resource + 1u, true);
         m_guestAccess[resource] = m_guestAccess[resource] && guestAccess;
         if (m_guestLoads.size() <= resource) m_guestLoads.resize(resource + 1u, false);
