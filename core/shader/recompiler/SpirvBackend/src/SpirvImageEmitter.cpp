@@ -1883,6 +1883,9 @@ void EmitGuestSample(SpirvValueEmitContext& ctx, const IrValue& inst, const Imag
     if (layout.coord == NoImageComponent || memory.imageAddressComponents < layout.coord + 2u) ctx.Fail(inst, "has an image address with too few coordinate components");
     const auto u = AddressU32(ctx, emitAccess, layout.coord);
     const auto v = AddressU32(ctx, emitAccess, layout.coord + 1u);
+    const bool arrayed = memory.imageDimension == RdnaImageDimension::Dim2DArray;
+    if (arrayed && memory.imageAddressComponents < layout.coord + 3u) ctx.Fail(inst, "has an array image address without a slice component");
+    const auto layer = arrayed ? AddressU32(ctx, emitAccess, layout.coord + 2u) : ConstantU32(state, 0u);
     const bool gather = inst.Opcode() == IrOpcode::ImageGatherRaw;
     const auto lod = HasFlag(memory, RdnaImageSampleFlagLod) ? AddressU32(ctx, emitAccess, layout.lod) : ConstantU32(state, 0u);
     const bool derivative = HasFlag(memory, RdnaImageSampleFlagDerivative);
@@ -1928,7 +1931,7 @@ void EmitGuestSample(SpirvValueEmitContext& ctx, const IrValue& inst, const Imag
         state.module.AddFunction(spv::OpCompositeConstruct, vec4, row, u, v, rowLod, ConstantU32(state, rowMode));
         const auto memoryWords = Binary(state, spv::OpIAdd, u32, LoadTableMap(state, ConstantU32(state, ImageTableAbi::HeaderGuestMemory)), Binary(state, spv::OpIMul, u32, access.element, ConstantU32(state, ImageTableAbi::GuestMemoryWords)));
         std::uint32_t fault = 0;
-        const auto sampled = EmitGuestSampleCall(state, quad(element, 0u), quad(element, 4u), quad(samplers, 0u), row, derivatives, quad(memoryWords, 0u), fault);
+        const auto sampled = EmitGuestSampleCall(state, quad(element, 0u), quad(element, 4u), quad(samplers, 0u), row, derivatives, quad(memoryWords, 0u), layer, fault);
         EmitTableFault(ctx, inst, access.word, LoadTableMap(state, ConstantU32(state, ImageTableAbi::HeaderGuestFault)), Binary(state, spv::OpINotEqual, boolean, fault, ConstantU32(state, 0u)));
         const auto used = Binary(state, spv::OpIAdd, u32, LoadTableMap(state, ConstantU32(state, ImageTableAbi::HeaderGuestUsed)), access.element);
         EmitIfCondition(state, Binary(state, spv::OpIEqual, boolean, LoadTableMap(state, used), ConstantU32(state, 0u)), [&] {

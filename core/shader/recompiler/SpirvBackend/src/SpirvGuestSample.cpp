@@ -148,13 +148,13 @@ void DeclareGuestSampleFunction(SpirvEmitterState& state) {
     const auto vec4 = TypeU32Vector(state, 4);
     const auto vec4Pointer = TypePointer(state, spv::StorageClassFunction, vec4);
     const auto u32Pointer = TypePointer(state, spv::StorageClassFunction, u32);
-    const auto sampleType = state.module.Type(spv::OpTypeFunction, vec4, vec4Pointer, vec4Pointer, vec4Pointer, vec4Pointer, vec4Pointer, vec4Pointer, u32Pointer);
+    const auto sampleType = state.module.Type(spv::OpTypeFunction, vec4, vec4Pointer, vec4Pointer, vec4Pointer, vec4Pointer, vec4Pointer, vec4Pointer, u32Pointer, u32Pointer);
     state.module.EmitCapability(spv::CapabilityLinkage);
     const auto label = state.currentLabel;
     state.module.BeginHelperFunction();
     state.guestSampleFunction = state.module.AllocateId();
     state.module.AddFunction(spv::OpFunction, vec4, state.guestSampleFunction, spv::FunctionControlMaskNone, sampleType);
-    for (std::uint32_t parameter = 0; parameter < 7u; ++parameter) state.module.AddFunction(spv::OpFunctionParameter, parameter < 6u ? vec4Pointer : u32Pointer, state.module.AllocateId());
+    for (std::uint32_t parameter = 0; parameter < 8u; ++parameter) state.module.AddFunction(spv::OpFunctionParameter, parameter < 6u ? vec4Pointer : u32Pointer, state.module.AllocateId());
     state.module.AddFunction(spv::OpFunctionEnd);
     state.module.EndHelperFunction();
     state.currentLabel = label;
@@ -223,13 +223,14 @@ void DeclareGuestSampleVariables(SpirvEmitterState& state) {
     }
 }
 
-std::uint32_t EmitGuestSampleCall(SpirvEmitterState& state, std::uint32_t tlow, std::uint32_t thigh, std::uint32_t sampler, std::uint32_t row, std::uint32_t derivatives, std::uint32_t memory, std::uint32_t& fault) {
+std::uint32_t EmitGuestSampleCall(SpirvEmitterState& state, std::uint32_t tlow, std::uint32_t thigh, std::uint32_t sampler, std::uint32_t row, std::uint32_t derivatives, std::uint32_t memory, std::uint32_t layer, std::uint32_t& fault) {
     if (state.guestSampleVariables[0] == 0u) throw std::runtime_error("guest sampler: the program declared no guest sample variables");
     if (state.guestSampleFunction == 0u) DeclareGuestSampleFunction(state);
     const std::array<std::uint32_t, 6> arguments{tlow, thigh, sampler, row, derivatives, memory};
     for (std::uint32_t index = 0; index < arguments.size(); ++index) state.module.AddFunction(spv::OpStore, state.guestSampleVariables[index], arguments[index]);
+    state.module.AddFunction(spv::OpStore, state.guestSampleVariables[7], layer);
     const auto result = state.module.AllocateId();
-    state.module.AddFunction(spv::OpFunctionCall, TypeU32Vector(state, 4), result, state.guestSampleFunction, state.guestSampleVariables[0], state.guestSampleVariables[1], state.guestSampleVariables[2], state.guestSampleVariables[3], state.guestSampleVariables[4], state.guestSampleVariables[5], state.guestSampleVariables[6]);
+    state.module.AddFunction(spv::OpFunctionCall, TypeU32Vector(state, 4), result, state.guestSampleFunction, state.guestSampleVariables[0], state.guestSampleVariables[1], state.guestSampleVariables[2], state.guestSampleVariables[3], state.guestSampleVariables[4], state.guestSampleVariables[5], state.guestSampleVariables[7], state.guestSampleVariables[6]);
     fault = state.module.AllocateId();
     state.module.AddFunction(spv::OpLoad, TypeU32(state), fault, state.guestSampleVariables[6]);
     return result;

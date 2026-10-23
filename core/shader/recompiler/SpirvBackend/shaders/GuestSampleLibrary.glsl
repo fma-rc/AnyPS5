@@ -108,9 +108,10 @@ const uint XorEquations[128] = uint[](
     0x0u, 0x0u, 0x0u, 0x1u, 0x1000u, 0x2u, 0x4u, 0x2000u, 0x8008008u, 0x4010010u, 0x2020040u, 0x1040020u, 0x4000u, 0x8u, 0x10000u, 0x40u);
 
 uint guestPipeBankXor = 0u;
+uint guestSlice = 0u;
 
 uint xorBlockOffset(uint ex, uint ey, uint swizzle, uint log2Bytes) {
-    uint coordinate = (ex & 0xfffu) | ((ey & 0xfffu) << 12);
+    uint coordinate = (ex & 0xfffu) | ((ey & 0xfffu) << 12) | ((guestSlice & 0xffu) << 24);
     uint equation = ((swizzle == 24u ? 0u : 4u) + log2Bytes) * 16u;
     uint offset = 0u;
     for (uint bit = 0u; bit < 16u; ++bit) offset |= (uint(bitCount(coordinate & XorEquations[equation + bit])) & 1u) << bit;
@@ -1062,7 +1063,7 @@ uint filterChannel(uint format, bool srgb, bool point, uint c, uint texels[8], u
     return (format == 175u || format == 177u) ? bc45Filter(texels, tapWeights, tapLevels, tapCount, levelWeights) : unormFilter(texels, tapWeights, tapLevels, tapCount, levelWeights);
 }
 
-uvec4 sampleGuest(uvec4 tlow, uvec4 thigh, uvec4 ssharp, uvec4 row, uvec4 derivatives, uvec4 memory, out uint fault) {
+uvec4 sampleGuest(uvec4 tlow, uvec4 thigh, uvec4 ssharp, uvec4 row, uvec4 derivatives, uvec4 memory, uint layer, out uint fault) {
     faulted = false;
     guestOutside = false;
     fault = 1u;
@@ -1096,7 +1097,14 @@ uvec4 sampleGuest(uvec4 tlow, uvec4 thigh, uvec4 ssharp, uvec4 row, uvec4 deriva
     bool knownFormat = format == 1u || format == 7u || format == 13u || format == 22u || format == 36u || format == 56u || format == 71u || format == 130u || format == 169u || format == 170u || format == 175u || format == 177u || format == 179u || format == 181u || format == 182u;
     bool srgb = format == 130u || format == 170u || format == 182u;
     bool anisoTaps = magFilter == 3u && minFilter == 3u && anisoRatio == 1u;
-    bool supported = knownFormat && type == 9u && (clampX == 0u || clampX == 2u) && (clampY == 0u || clampY == 2u);
+    bool arrayed = type == 13u;
+    bool supported = knownFormat && (type == 9u || (arrayed && (thigh.x >> 16) == 0u)) && (clampX == 0u || clampX == 2u) && (clampY == 0u || clampY == 2u);
+    guestSlice = 0u;
+    if (arrayed) {
+        float slice = uintBitsToFloat(layer);
+        guestSlice = isnan(slice) ? 0u : uint(clamp(roundEven(slice), 0.0, float(thigh.x & 0x1fffu)));
+        base += uint64_t(guestSlice) * uint64_t(memory.w);
+    }
     supported = supported && (anisoTaps || (magFilter == minFilter && magFilter <= 1u && anisoRatio <= 1u));
     supported = supported && baseLevel == 0u && maxMip == lastLevel && max(textureMinLod, samplerMinLod) <= (lastLevel << 8);
     uint anisoThreshold = (ssharp.x >> 16) & 7u;
@@ -1312,6 +1320,7 @@ uvec4 sampleGuest(uvec4 tlow, uvec4 thigh, uvec4 ssharp, uvec4 row, uvec4 deriva
 
 uvec4 loadGuest(uvec4 tlow, uvec4 thigh, uvec4 coord, uvec4 memory, out uint fault) {
     faulted = false;
+    guestSlice = 0u;
     guestOutside = false;
     fault = 1u;
     uint64_t base = (uint64_t(tlow.x) | (uint64_t(tlow.y & 0xffu) << 32)) << 8;

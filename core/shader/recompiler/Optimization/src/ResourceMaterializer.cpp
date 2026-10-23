@@ -1684,7 +1684,7 @@ std::uint32_t GuestCensusUnsupported(const std::array<std::uint32_t, 8>& image, 
     else if (baseLevel != 0u) noteDetail(0x510u | baseLevel);
     else if (maxMip != lastLevel) noteDetail(0x600u | (maxMip << 4u) | lastLevel);
     else if (std::max(textureMinLod, samplerMinLod) > (lastLevel << 8u)) { noteDetail(0x520u); noteDetail(0x900u | std::min(textureMinLod >> 4u, 0xffu)); }
-    if (type != 9u || baseLevel != 0u || maxMip != lastLevel || std::max(textureMinLod, samplerMinLod) > (lastLevel << 8u)) return 5u;
+    if ((type != 9u && (type != 13u || (image[4] >> 16u) != 0u)) || baseLevel != 0u || maxMip != lastLevel || std::max(textureMinLod, samplerMinLod) > (lastLevel << 8u)) return 5u;
     if (rgba8 ? (swizzle != 0u && swizzle != 1u && swizzle != 9u && swizzle != 24u && swizzle != 27u) || lastLevel != 0u : single ? swizzle != 0u && swizzle != 1u : plain ? (swizzle != 0u && swizzle != 1u && swizzle != 24u && swizzle != 27u) || lastLevel != 0u : swizzle != 0u && swizzle != 1u && swizzle != 5u && swizzle != 9u) return 6u;
     for (std::uint32_t channel = 0; channel < 4u; ++channel) {
         const std::uint32_t selector = (image[3] >> (channel * 3u)) & 7u;
@@ -1746,7 +1746,7 @@ ResolvedImageTables ResourceMaterializer::ResolveImageTables(const ShaderInfo& i
     std::vector<bool> elementGather;
     std::vector<std::uint32_t> elementWhy;
     const auto guestMode = [](const ImageResource& mode) {
-        return mode.conversionFormat == IrBufferFormat::Invalid && !mode.depthBits && !mode.depthUnorm16 && !mode.srgbDecode && !mode.constantSwizzle && !mode.packed && !mode.cube && !mode.depthCompare && (mode.emulatedCompare & ~(EmulatedCompare::ConvertedSampleUnsupported | EmulatedCompare::ConvertedSampleRequiresSingleLevel)) == 0u && mode.packedFormat == IrBufferFormat::Invalid && mode.dimension == RdnaImageDimension::Dim2D && mode.numericClass == IrTextureNumericClass::Float;
+        return mode.conversionFormat == IrBufferFormat::Invalid && !mode.depthBits && !mode.depthUnorm16 && !mode.srgbDecode && !mode.constantSwizzle && !mode.packed && !mode.cube && !mode.depthCompare && (mode.emulatedCompare & ~(EmulatedCompare::ConvertedSampleUnsupported | EmulatedCompare::ConvertedSampleRequiresSingleLevel)) == 0u && mode.packedFormat == IrBufferFormat::Invalid && (mode.dimension == RdnaImageDimension::Dim2D || mode.dimension == RdnaImageDimension::Dim2DArray) && mode.numericClass == IrTextureNumericClass::Float;
     };
     std::vector<std::uint32_t> directSamplers(info.images.size(), 0u);
     for (const auto& pair : info.sampledPairs) {
